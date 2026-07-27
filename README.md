@@ -112,7 +112,7 @@ signal-shield/
   ┌──────┐                   ┌──────────────┐               ┌──────────────┐
   │ User │                   │              │               │              │
   │ drops│  ── file ──────►  │  FileUploader│  ── POST ──►  │  /api/v1/    │
-  │ file │                   │              │    (fetch)     │  protect     │
+  │ file │                   │              │    (fetch)    │  protect     │
   │      │                   │  Processing  │               │              │
   │      │                   │  Status:     │               │  1. Validate │
   │      │                   │  spinner...  │               │  2. Load     │
