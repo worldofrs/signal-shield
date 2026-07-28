@@ -16,7 +16,7 @@ FROM python:3.12-slim
 # apt-get is Linux's package manager (like pip but for system software).
 # rm -rf /var/lib/apt/lists/* cleans up the download cache to keep the image small.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libsndfile1 ffmpeg && \
+    apt-get install -y --no-install-recommends libsndfile1 ffmpeg gcc python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Step 3: Set the working directory
