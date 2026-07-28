@@ -39,8 +39,8 @@ Converts the audio from a sequence of samples over time into a frequency map —
   │   /\    /\    /\              │ ████
   │  /  \  /  \  /  \             │ ██████
   │ /    \/    \/    \            │ ████████░░░░░░░░
-  │/                  \           │ ██████████░░░░░░  ← each cell has
-  └──────────────────► time       └──────────────────► time   magnitude + phase
+  │/                  \           │ ██████████░░░░░░  ← each cell has magnitude + phase
+  └──────────────────► time       └──────────────────► time   
 ```
 
 **Step 2 — Phase Inversion:**
