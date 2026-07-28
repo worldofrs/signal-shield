@@ -10,76 +10,43 @@ AI voice cloning tools can take a short audio clip of someone's voice and genera
 
 Signal Shield processes audio files to make them unusable for voice cloning while keeping them sounding identical to human ears.
 
-### The Short Version
+### Adversarial Optimization (Current Approach)
 
-Sound has two properties at every frequency: **loudness** (how loud that frequency is) and **phase** (the timing offset of the sound wave). Human ears are sensitive to loudness but mostly deaf to phase, especially at high frequencies. Cloning models, however, use both. Signal Shield scrambles the phase above 10,000 Hz — humans can't hear the difference, but cloning models get corrupted input.
-
-### The Full Pipeline
+Signal Shield uses **adversarial optimization** powered by PGD (Projected Gradient Descent) and a real speaker encoder model (Resemblyzer). Instead of a fixed transformation, the system finds the smallest possible perturbation for each audio file that maximally disrupts speaker recognition.
 
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │              Signal Shield Pipeline             │
-                    │                                                 │
-  Audio File        │   ┌───────┐    ┌──────────┐    ┌───────────┐    │   Protected
-  (WAV/MP3)  ──────►│   │ STFT  │───►│  Phase   │───►│  iSTFT    │    │──► Audio
-                    │   │       │    │  Invert  │    │           │    │   (WAV)
-                    │   └───────┘    └──────────┘    └───────────┘    │
-                    │   time→freq    modify phase    freq→time        │
-                    └─────────────────────────────────────────────────┘
+  Audio ──┬──► Speaker Encoder ──► Loss (cosine similarity)
+          │         ▲                    │
+          │         │        gradient    │
+          │    perturbation ◄────────────┘
+          │         │
+          └──► Add Perturbation ──► Protected Audio
+
+  Custom perturbation per file.
+  Targeted, validated against a real model.
+  Perturbation clamped to ±0.01 amplitude (inaudible).
 ```
 
-**Step 1 — STFT (Short-Time Fourier Transform):**
-Converts the audio from a sequence of samples over time into a frequency map — a grid showing which frequencies are present at each moment. Think of it as switching from a waveform view to an equalizer view.
+### How PGD Works
 
-```
-  Time Domain (input)              Frequency Domain (after STFT)
+1. **Get original embedding** — run the audio through Resemblyzer's speaker encoder to get a 256-dim vector representing "who this sounds like"
+2. **Create perturbation** — start with a zero-valued delta tensor (same length as audio)
+3. **Optimize** — for 50 iterations:
+   - Compute the embedding of (audio + delta)
+   - Measure cosine similarity to the original embedding
+   - Backpropagate to find which direction to push each sample
+   - Update delta by a small step in that direction
+   - Clamp delta to [-epsilon, epsilon] so it stays inaudible
+4. **Output** — return audio + optimized delta
 
-  amplitude                        frequency
-  ▲                               ▲
-  │   /\    /\    /\              │ ████
-  │  /  \  /  \  /  \             │ ██████
-  │ /    \/    \/    \            │ ████████░░░░░░░░
-  │/                  \           │ ██████████░░░░░░  ← each cell has magnitude + phase
-  └──────────────────► time       └──────────────────► time   
-```
+### Making It Differentiable
 
-**Step 2 — Phase Inversion:**
-Each cell in the frequency grid is a complex number with two parts: magnitude (loudness) and phase (wave timing). We leave magnitude untouched and flip the phase for everything above 10,000 Hz.
+Resemblyzer's `embed_utterance()` uses `torch.no_grad()`, which blocks gradient flow. To make PGD work, the engine reimplements the embedding pipeline using differentiable PyTorch ops:
 
-```
-  Frequency
-  ▲
-  │ ░░░░░░░░░░░░░░░░░░░░  ← above 10kHz: PHASE INVERTED
-  │ ░░░░░░░░░░░░░░░░░░░░    (cloning models get corrupted input)
-  │ - - - - - - - - - - -  ← 10kHz threshold
-  │ ████████████████████    (human-audible range: untouched)
-  │ ████████████████████
-  │ ████████████████████
-  └──────────────────────► Time
-```
-
-**Step 3 — iSTFT (Inverse STFT):**
-Converts the modified frequency grid back into a normal audio file. The result sounds the same to humans because magnitude (what we hear) was never changed.
-
-### Current Approach vs. Future Approach
-
-Signal Shield currently uses a **static DSP approach** — the same phase transformation is applied to every file. This is the MVP.
-
-The planned upgrade is **adversarial optimization**: instead of a fixed transformation, the system would use a neural network to find the smallest possible perturbation that maximally disrupts a specific cloning model. This is more effective because it's tailored to exploit the model's weaknesses rather than relying on a general assumption about phase sensitivity.
-
-```
-  Static (current)                    Adversarial (planned)
-
-  Audio ──► Fixed Phase Flip ──► Out   Audio ──┬──► Cloning Model ──► Loss
-                                               │         ▲               │
-                                               │         │    gradient   │
-                                               │    perturbation ◄───────┘
-                                               │         │
-                                               └──► Add Perturbation ──► Out
-
-  Same transformation every time.      Custom perturbation per file.
-  Fast. May not beat all models.       Slower. Targeted and validated.
-```
+- Mel spectrogram via `torchaudio.transforms.MelSpectrogram` (matching Resemblyzer's exact params: 16kHz, n_fft=400, hop=160, 40 mels)
+- Splits audio into 160-frame partial utterance windows
+- Calls the encoder's `forward()` directly (LSTM → Linear → ReLU → L2 normalize)
+- Averages partial embeddings
 
 ## Architecture
 
@@ -94,15 +61,19 @@ signal-shield/
 │   │   ├── api/v1/
 │   │   │   └── router.py   ← POST /api/v1/protect endpoint
 │   │   └── core/
-│   │       ├── dsp_engine.py  ← STFT phase-shift logic (the core product)
-│   │       └── audio_io.py    ← Audio format conversion
-│   └── tests/              ← DSP + API tests
+│   │       ├── adversarial_engine.py  ← PGD optimization loop (the core product)
+│   │       ├── dsp_engine.py          ← Public interface, delegates to adversarial engine
+│   │       └── audio_io.py            ← Audio format conversion
+│   ├── tests/              ← Adversarial + API tests
+│   ├── Dockerfile          ← Production container
+│   └── requirements.txt
 │
 ├── frontend/               ← TypeScript (Next.js)
-│   └── src/
-│       ├── app/page.tsx    ← Upload page
-│       ├── components/     ← UI components
-│       └── lib/api.ts      ← Backend API client
+│   ├── src/
+│   │   ├── app/page.tsx    ← Upload page
+│   │   ├── components/     ← UI components
+│   │   └── lib/api.ts      ← Backend API client
+│   └── Dockerfile          ← Multi-stage production container
 ```
 
 ### Request Flow
@@ -116,10 +87,10 @@ signal-shield/
   │      │                   │  Processing  │               │              │
   │      │                   │  Status:     │               │  1. Validate │
   │      │                   │  spinner...  │               │  2. Load     │
-  │      │                   │              │               │  3. STFT     │
-  │      │                   │  Download    │  ◄── WAV ──   │  4. Phase inv│
-  │      │  ◄─ click ──────  │  Button      │    (bytes)    │  5. iSTFT    │
-  │      │                   │              │               │  6. Export   │
+  │      │                   │              │               │  3. Resample │
+  │      │                   │  Download    │  ◄── WAV ──   │  4. PGD loop │
+  │      │  ◄─ click ──────  │  Button      │    (bytes)    │  5. Export   │
+  │      │                   │              │               │              │
   └──────┘                   └──────────────┘               └──────────────┘
 ```
 
@@ -127,22 +98,26 @@ signal-shield/
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| DSP | librosa + numpy | Industry-standard audio analysis, handles STFT/iSTFT natively |
+| Adversarial ML | PyTorch + torchaudio | Differentiable computation graph for gradient-based optimization |
+| Speaker Encoder | Resemblyzer | Pretrained 3-layer LSTM, lightweight (~17MB), produces 256-dim embeddings |
 | API | FastAPI | Async Python web framework with built-in validation and docs |
-| Audio I/O | soundfile | Reads/writes WAV files via libsndfile |
-| Frontend | Next.js + Tailwind | React framework with built-in routing, standalone build for Docker |
+| Audio I/O | librosa + soundfile | Industry-standard audio loading and WAV export |
+| Frontend | Next.js + Tailwind | React framework with standalone build for Docker |
 | Deployment | Railway + Docker | Two services from one repo, env var configuration |
 
-## DSP Parameters
+## Configuration
 
 All configurable via `SS_`-prefixed environment variables.
 
 | Parameter | Default | What it controls |
 |-----------|---------|-----------------|
-| `sample_rate` | 22050 Hz | Audio resampling rate. Nyquist limit = ~11kHz |
-| `n_fft` | 4096 | STFT window size. Frequency resolution = sample_rate / n_fft ≈ 5.4 Hz per bin |
-| `hop_length` | 1024 | STFT step size (n_fft / 4 = 75% overlap for smooth reconstruction) |
-| `freq_threshold_hz` | 10000 | Phase inversion starts above this frequency |
+| `sample_rate` | 22050 Hz | Audio resampling rate |
+| `n_fft` | 4096 | STFT window size |
+| `hop_length` | 1024 | STFT step size |
+| `freq_threshold_hz` | 10000 | Legacy parameter (kept for compatibility) |
+| `pgd_steps` | 50 | Number of PGD optimization iterations |
+| `pgd_epsilon` | 0.01 | Max perturbation amplitude (imperceptibility bound) |
+| `pgd_alpha` | 0.001 | Step size per PGD iteration |
 
 ## Running Locally
 
@@ -160,33 +135,50 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`, upload a `.wav` or `.mp3` file, and download the protected result.
+Open `http://localhost:3000`, upload a `.wav` or `.mp3` file, and download the protected result. The first request is slower (~30s) because the Resemblyzer model loads on first use.
 
 ## Tests
 
 ```bash
 cd backend
-python -m pytest tests/ -v
+python3 -m pytest tests/ -v
 ```
 
 Tests verify:
 - Output length matches input
-- Magnitude spectrum is preserved (audio sounds the same)
-- Phase is inverted above threshold (protection is applied)
 - Output is not silence
+- Perturbation stays within epsilon bound (inaudible)
+- Speaker embeddings diverge (cosine similarity decreases)
+- Output dtype is float32
 - API returns correct status codes for valid files, bad formats, and oversized files
+
+## Deploying to Railway
+
+Both services deploy from the same repo using their respective Dockerfiles.
+
+**Backend service:**
+- Root directory: `backend`
+- Set `SS_ALLOWED_ORIGINS` to the frontend's Railway URL
+
+**Frontend service:**
+- Root directory: `frontend`
+- Set `NEXT_PUBLIC_API_URL` to the backend's Railway URL (build-time variable)
+
+The backend uses CPU-only PyTorch builds to keep the Docker image small (~500MB vs ~2.5GB with CUDA).
 
 ## Limitations
 
-- **Static phase inversion may not defeat all cloning models.** Many modern cloners (RVC, XTTS) use mel spectrograms which discard phase information. The adversarial optimization upgrade (planned) addresses this by targeting specific model architectures.
+- **Single surrogate model.** Protection is optimized against Resemblyzer's encoder. Cloning tools using different architectures may not be fully disrupted, though the perturbation generalizes somewhat across models.
+- **Processing time.** 50 PGD iterations on a 2-second clip takes ~20-30 seconds on CPU. Longer audio takes proportionally more.
 - **50MB file size limit.** Processing a 50MB WAV uses ~40-60MB of peak memory.
 - **Mono output.** Audio is converted to mono at 22050 Hz during processing.
 
 ## Roadmap
 
+- [x] PyTorch adversarial optimization (replace static DSP)
+- [x] Dockerized deployment (Railway-ready)
 - [ ] Validate protection against real cloning tools (RVC, XTTS)
-- [ ] PyTorch adversarial optimization (replace static DSP)
+- [ ] Add more surrogate models for better transferability
 - [ ] Audio preview/playback in browser
-- [ ] Configurable frequency threshold slider
 - [ ] Rate limiting
 - [ ] Batch file processing
