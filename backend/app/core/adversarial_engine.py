@@ -187,11 +187,4 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     elif len(protected) < len(y):
         protected = np.pad(protected, (0, len(y) - len(protected)))
 
-    # Clamp the final perturbation to epsilon. The resample round-trip
-    # (22050→16000→22050) can amplify delta beyond epsilon due to sinc
-    # interpolation overshoot, so we enforce the bound in output space.
-    delta_final = protected - y
-    delta_final = np.clip(delta_final, -settings.pgd_epsilon, settings.pgd_epsilon)
-    protected = y + delta_final
-
     return protected.astype(np.float32)
