@@ -16,5 +16,10 @@ class Settings(BaseSettings):
     freq_threshold_hz: int = 10000
     sample_rate: int = 22050
 
+    # Adversarial PGD parameters
+    pgd_steps: int = 50
+    pgd_epsilon: float = 0.01
+    pgd_alpha: float = 0.001
+
 
 settings = Settings()
