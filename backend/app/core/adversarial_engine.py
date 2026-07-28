@@ -6,13 +6,13 @@ for each audio file that maximally confuses a speaker encoder model (Resemblyzer
 The attack works by iteratively adjusting a small perturbation (delta) so that the
 speaker embedding of (audio + delta) is as far as possible from the original embedding,
 while keeping delta small enough to be imperceptible.
+
+Heavy dependencies (torch, torchaudio, resemblyzer) are imported lazily — only when
+the first audio file is processed — so the server starts fast and health checks work
+immediately even on memory-constrained hosts.
 """
 
 import numpy as np
-import torch
-import torch.nn.functional as F
-import torchaudio
-from resemblyzer import VoiceEncoder
 
 from app.config import settings
 
@@ -23,30 +23,24 @@ _MEL_HOP_LENGTH = 160
 _MEL_N_MELS = 40
 _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 
-# Lazy-loaded encoder singleton — the model weights are ~17MB and only need
-# to load once. We keep it at module level so repeated calls reuse it.
-_encoder: VoiceEncoder | None = None
+# Lazy-loaded encoder singleton
+_encoder = None
 
 
-def _get_encoder() -> VoiceEncoder:
+def _get_encoder():
     """Load the Resemblyzer encoder once, on first use."""
     global _encoder
     if _encoder is None:
+        from resemblyzer import VoiceEncoder
         _encoder = VoiceEncoder(device="cpu")
     return _encoder
 
 
-def _compute_mel_spectrogram(audio: torch.Tensor) -> torch.Tensor:
+def _compute_mel_spectrogram(audio, torch, torchaudio):
     """Compute a mel spectrogram using PyTorch ops (fully differentiable).
 
     Resemblyzer uses a linear-scale (not log) mel spectrogram with:
       - 16kHz sample rate, n_fft=400, hop=160, n_mels=40
-
-    Args:
-        audio: 1-D tensor of audio samples at 16kHz.
-
-    Returns:
-        Mel spectrogram of shape (n_frames, 40).
     """
     mel_spec_transform = torchaudio.transforms.MelSpectrogram(
         sample_rate=_RESEMBLYZER_SR,
@@ -55,14 +49,11 @@ def _compute_mel_spectrogram(audio: torch.Tensor) -> torch.Tensor:
         n_mels=_MEL_N_MELS,
         power=2.0,
     )
-    # torchaudio expects (channel, time) or (time,) — we have (time,)
     mel = mel_spec_transform(audio)  # shape: (n_mels, n_frames)
     return mel.T  # shape: (n_frames, n_mels)
 
 
-def _get_embedding_differentiable(
-    audio: torch.Tensor, encoder: VoiceEncoder
-) -> torch.Tensor:
+def _get_embedding_differentiable(audio, encoder, torch, torchaudio):
     """Compute a speaker embedding with gradients flowing through the audio.
 
     Resemblyzer's embed_utterance() uses torch.no_grad(), which blocks gradients.
@@ -71,19 +62,13 @@ def _get_embedding_differentiable(
       2. Split into partial utterances (160-frame windows)
       3. Call encoder.forward() directly (differentiable LSTM + linear + ReLU)
       4. Average partials and L2-normalize
-
-    Args:
-        audio: 1-D tensor of audio samples at 16kHz (may have requires_grad via delta).
-        encoder: The loaded Resemblyzer VoiceEncoder.
-
-    Returns:
-        256-dim L2-normalized embedding tensor.
     """
-    mel = _compute_mel_spectrogram(audio)  # (n_frames, 40)
+    import torch.nn.functional as F
+
+    mel = _compute_mel_spectrogram(audio, torch, torchaudio)
     n_frames = mel.shape[0]
 
     # Split mel into partial utterances of 160 frames each (same as Resemblyzer)
-    # Step size ~77 frames corresponds to rate=1.3 partials/sec
     frame_step = 77
     partials = []
     for start in range(0, max(1, n_frames - _PARTIALS_N_FRAMES + 1), frame_step):
@@ -116,14 +101,12 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     embedding of y, while delta stays within [-epsilon, epsilon].
 
     Same signature as the old apply_phase_protection: (np.ndarray, int) → np.ndarray.
-
-    Args:
-        y: Audio samples as a 1-D float32 numpy array.
-        sr: Sample rate of the audio.
-
-    Returns:
-        Protected audio as a 1-D float32 numpy array (same length as input).
     """
+    # Lazy imports — only loaded when actually processing audio
+    import torch
+    import torch.nn.functional as F
+    import torchaudio
+
     encoder = _get_encoder()
     encoder.eval()
 
@@ -136,7 +119,9 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
 
     # Step 1: Get the original embedding (no gradients needed for this)
     with torch.no_grad():
-        original_embedding = _get_embedding_differentiable(audio_tensor, encoder)
+        original_embedding = _get_embedding_differentiable(
+            audio_tensor, encoder, torch, torchaudio
+        )
 
     # Step 2: Create the perturbation tensor — this is what we optimize
     delta = torch.zeros_like(audio_tensor, requires_grad=True)
@@ -145,7 +130,9 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     for _ in range(settings.pgd_steps):
         # Forward pass: get embedding of perturbed audio
         perturbed_audio = audio_tensor + delta
-        perturbed_embedding = _get_embedding_differentiable(perturbed_audio, encoder)
+        perturbed_embedding = _get_embedding_differentiable(
+            perturbed_audio, encoder, torch, torchaudio
+        )
 
         # Loss: cosine similarity (we want to MINIMIZE this, i.e. push embeddings apart)
         loss = F.cosine_similarity(
@@ -157,7 +144,6 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
         loss.backward()
 
         # Update delta in the direction that DECREASES similarity
-        # (gradient descent on cosine similarity = moving embeddings apart)
         with torch.no_grad():
             delta_update = delta - settings.pgd_alpha * delta.grad.sign()
             # Project back into epsilon-ball (clamp perturbation magnitude)
