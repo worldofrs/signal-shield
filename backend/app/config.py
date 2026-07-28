@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     sample_rate: int = 22050
 
     # Adversarial PGD parameters
-    pgd_steps: int = 50
+    pgd_steps: int = 10
     pgd_epsilon: float = 0.01
     pgd_alpha: float = 0.001
 
