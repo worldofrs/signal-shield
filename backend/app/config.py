@@ -5,7 +5,12 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "SS_"}
 
     # CORS — which frontend origins can call this API
-    allowed_origins: list[str] = ["http://localhost:3000"]
+    # Accepts a comma-separated string, e.g. "https://example.com,http://localhost:3000"
+    allowed_origins: str = "http://localhost:3000"
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",")]
 
     # Upload limits
     max_file_size_mb: int = 50
