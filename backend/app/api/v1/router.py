@@ -19,6 +19,7 @@ async def protect_audio(file: UploadFile):
     if "." in filename:
         ext = "." + filename.rsplit(".", 1)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
+        print("unsupported format")
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported format '{ext}'. Accepted: .wav, .mp3",
@@ -28,6 +29,7 @@ async def protect_audio(file: UploadFile):
     file_bytes = await file.read()
     max_bytes = settings.max_file_size_mb * 1024 * 1024
     if len(file_bytes) > max_bytes:
+        print("file too large")
         raise HTTPException(
             status_code=413,
             detail=f"File exceeds {settings.max_file_size_mb}MB limit",
@@ -38,7 +40,9 @@ async def protect_audio(file: UploadFile):
         y, sr = load_audio(file_bytes, filename)
         protected = apply_phase_protection(y, sr)
         wav_bytes = export_wav(protected, sr)
+        print("yay it worked!")
     except Exception as e:
+        print("something went wrong")
         raise HTTPException(
             status_code=422,
             detail=f"Processing failed: {e}",
@@ -46,6 +50,7 @@ async def protect_audio(file: UploadFile):
 
     # Return protected WAV as a download
     safe_name = filename.rsplit(".", 1)[0] if "." in filename else "audio"
+    print('returning response')
     return StreamingResponse(
         BytesIO(wav_bytes),
         media_type="audio/wav",
