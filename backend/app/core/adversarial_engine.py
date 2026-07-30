@@ -145,6 +145,7 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     for _ in range(settings.pgd_steps):
         # Forward pass: get embedding of perturbed audio
         perturbed_audio = audio_tensor + delta
+        perturbed_audio = _apply_input_diversity(perturbed_audio)
         perturbed_embedding = _get_embedding_differentiable(perturbed_audio, encoder)
 
         # Loss: cosine similarity (we want to MINIMIZE this, i.e. push embeddings apart)
@@ -159,13 +160,13 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
         # Update delta in the direction that DECREASES similarity
         # (gradient descent on cosine similarity = moving embeddings apart)
         with torch.no_grad():
-            delta_update = delta - settings.pgd_alpha * delta.grad.sign()
+            delta_update = delta - settings.pgd_alpha * delta.grad.sign() # type: ignore
             # Project back into epsilon-ball (clamp perturbation magnitude)
             delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
             delta.data = delta_update
 
         # Reset gradients for next iteration
-        delta.grad.zero_()
+        delta.grad.zero_() # type: ignore
 
     # Step 4: Apply the optimized perturbation
     with torch.no_grad():
@@ -187,4 +188,16 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     elif len(protected) < len(y):
         protected = np.pad(protected, (0, len(y) - len(protected)))
 
+    # Clamp the final perturbation to epsilon. The resample round-trip
+    # can amplify delta beyond epsilon, so we enforce the bound in output space.
+    delta_final = protected - y
+    delta_final = np.clip(delta_final, -settings.pgd_epsilon, settings.pgd_epsilon)
+    protected = y + delta_final
+
     return protected.astype(np.float32)
+
+def _apply_input_diversity(audio: torch.Tensor) -> torch.Tensor:
+    audio = torch.roll(audio, torch.randint(-50, 51, (1,)).item())
+    audio = audio + 0.001 * torch.randn_like(audio)
+    audio = audio * torch.empty(1).uniform_(0.95, 1.05)
+    return audio
