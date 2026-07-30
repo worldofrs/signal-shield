@@ -13,8 +13,21 @@ import torch
 import torch.nn.functional as F
 import torchaudio
 from resemblyzer import VoiceEncoder
-
 from app.config import settings
+
+
+class _EncoderWrapper:
+    """Uniform interface for different speaker encoder architectures."""
+    def __init__(self, name, model, embed_fn):
+        self.name = name
+        self.model = model
+        self.embed_fn = embed_fn  # function: (audio_tensor) -> embedding_tensor
+
+    def eval(self):
+        self.model.eval()
+
+    def get_embedding(self, audio):
+        return self.embed_fn(audio)
 
 # Resemblyzer's expected parameters (from hparams.py)
 _RESEMBLYZER_SR = 16000
@@ -28,7 +41,14 @@ _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 _encoder: VoiceEncoder | None = None
 
 def _get_encoders() -> list:
-    return [_get_encoder()]
+    encoder = _get_encoder()
+    return [
+        _EncoderWrapper(
+            name="resemblyzer",
+            model=encoder,
+            embed_fn=lambda audio, enc=encoder: _get_embedding_differentiable(audio, enc)
+        )
+    ]
 
 
 def _get_encoder() -> VoiceEncoder:
@@ -140,7 +160,7 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
 
     # Step 1: Get the original embedding (no gradients needed for this)
     with torch.no_grad():
-        original_embeddings = [_get_embedding_differentiable(audio_tensor, enc) for enc in encoders]
+        original_embeddings = [enc.get_embedding(audio_tensor) for enc in encoders]
 
     # Step 2: Create the perturbation tensor — this is what we optimize
     delta = torch.zeros_like(audio_tensor, requires_grad=True)
@@ -150,7 +170,7 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
         # Forward pass: get embedding of perturbed audio
         perturbed_audio = audio_tensor + delta
         perturbed_audio = _apply_input_diversity(perturbed_audio)
-        perturbed_embeddings = [_get_embedding_differentiable(perturbed_audio, enc) for enc in encoders]
+        perturbed_embeddings = [enc.get_embedding(perturbed_audio) for enc in encoders]
 
         # Loss: cosine similarity (we want to MINIMIZE this, i.e. push embeddings apart)
         loss = torch.tensor(0.0)
