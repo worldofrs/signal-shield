@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torchaudio
 from resemblyzer import VoiceEncoder
 from speechbrain.inference.speaker import EncoderClassifier
+from transformers import HubertModel
 from app.config import settings
 
 class _EncoderWrapper:
@@ -40,6 +41,7 @@ _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 # to load once. We keep it at module level so repeated calls reuse it.
 _encoder: VoiceEncoder | None = None
 _ecapa_encoder = None
+_hubert_model = None
 
 def _get_encoder() -> VoiceEncoder:
     """Load the Resemblyzer encoder once, on first use."""
@@ -56,9 +58,16 @@ def _get_ecapa_encoder():
         )
     return _ecapa_encoder
 
+def _get_hubert_model():
+    global _hubert_model
+    if _hubert_model is None:
+        _hubert_model = HubertModel.from_pretrained("facebook/hubert-base-ls960")
+    return _hubert_model
+
 def _get_encoders() -> list:
     encoder = _get_encoder()
     ecapa_encoder = _get_ecapa_encoder()
+    hubert_encoder = _get_hubert_model()
     return [
         _EncoderWrapper(
             name="resemblyzer",
@@ -69,6 +78,11 @@ def _get_encoders() -> list:
             name="ecapa",
             model=ecapa_encoder,
             embed_fn=lambda audio, enc=ecapa_encoder: _get_ecapa_embedding_differentiable(audio, enc)
+        ),
+        _EncoderWrapper(
+            name="hubert",
+            model=hubert_encoder,
+            embed_fn=lambda audio, enc=hubert_encoder: _get_hubert_embedding_differentiable(audio, enc)
         )
     ]
 
@@ -160,7 +174,19 @@ def _get_ecapa_embedding_differentiable(
     embeddings = embeddings.squeeze()
     return embeddings / torch.norm(embeddings, p=2)
 
+def _get_hubert_embedding_differentiable(
+        audio: torch.Tensor, model: HubertModel
+) -> torch.Tensor:
+    # Normalize (same as Wav2Vec2FeatureExtractor but differentiable)
+    audio_normalized = (audio - audio.mean()) / (audio.std() + 1e-7)
 
+    # Forward pass — returns frame-level features, not an embedding
+    outputs = model(input_values=audio_normalized.unsqueeze(0))
+    hidden_states = outputs.last_hidden_state  # (1, n_frames, 768)
+
+    # Mean pool across frames to get a single vector
+    embedding = hidden_states.mean(dim=1).squeeze()  # (768,)
+    return embedding / torch.norm(embedding, p=2)
 
 def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     """Apply adversarial perturbation optimized to confuse speaker encoders.
