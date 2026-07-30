@@ -13,8 +13,8 @@ import torch
 import torch.nn.functional as F
 import torchaudio
 from resemblyzer import VoiceEncoder
+from speechbrain.inference.speaker import EncoderClassifier
 from app.config import settings
-
 
 class _EncoderWrapper:
     """Uniform interface for different speaker encoder architectures."""
@@ -39,17 +39,7 @@ _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 # Lazy-loaded encoder singleton — the model weights are ~17MB and only need
 # to load once. We keep it at module level so repeated calls reuse it.
 _encoder: VoiceEncoder | None = None
-
-def _get_encoders() -> list:
-    encoder = _get_encoder()
-    return [
-        _EncoderWrapper(
-            name="resemblyzer",
-            model=encoder,
-            embed_fn=lambda audio, enc=encoder: _get_embedding_differentiable(audio, enc)
-        )
-    ]
-
+_ecapa_encoder = None
 
 def _get_encoder() -> VoiceEncoder:
     """Load the Resemblyzer encoder once, on first use."""
@@ -57,6 +47,30 @@ def _get_encoder() -> VoiceEncoder:
     if _encoder is None:
         _encoder = VoiceEncoder(device="cpu")
     return _encoder
+
+def _get_ecapa_encoder():
+    global _ecapa_encoder
+    if _ecapa_encoder is None:
+        _ecapa_encoder = EncoderClassifier.from_hparams(
+            source="speechbrain/spkrec-ecapa-voxceleb"
+        )
+    return _ecapa_encoder
+
+def _get_encoders() -> list:
+    encoder = _get_encoder()
+    ecapa_encoder = _get_ecapa_encoder()
+    return [
+        _EncoderWrapper(
+            name="resemblyzer",
+            model=encoder,
+            embed_fn=lambda audio, enc=encoder: _get_embedding_differentiable(audio, enc)
+        ),
+        _EncoderWrapper(
+            name="ecapa",
+            model=ecapa_encoder,
+            embed_fn=lambda audio, enc=ecapa_encoder: _get_ecapa_embedding_differentiable(audio, enc)
+        )
+    ]
 
 
 def _compute_mel_spectrogram(audio: torch.Tensor) -> torch.Tensor:
@@ -129,6 +143,23 @@ def _get_embedding_differentiable(
     embedding = raw_embed / torch.norm(raw_embed, p=2)
 
     return embedding
+
+def _get_ecapa_embedding_differentiable(
+        audio: torch.Tensor, classifier: EncoderClassifier
+) -> torch.Tensor:
+    # SpeechBrain expects (batch, time) — audio is 1D, so unsqueeze
+    wavs = audio.unsqueeze(0)
+    wav_lens = torch.tensor([1.0])
+
+    # Call internal modules directly (differentiable)
+    feats = classifier.mods.compute_features(wavs)  # type: ignore
+    feats = classifier.mods.mean_var_norm(feats, wav_lens)  # type: ignore
+    embeddings = classifier.mods.embedding_model(feats)  # type: ignore
+
+    # Squeeze out batch/extra dims and L2-normalize
+    embeddings = embeddings.squeeze()
+    return embeddings / torch.norm(embeddings, p=2)
+
 
 
 def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
