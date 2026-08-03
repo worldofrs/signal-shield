@@ -77,7 +77,7 @@ export default function Home() {
         <LandingHero />
         <FileUploader
           onFileSelected={handleFileSelected}
-          disabled={status === "processing"}
+          disabled={status === "processing" || selectedEncoders.length === 0}
         />
         <EncoderSelector
           selected={selectedEncoders}

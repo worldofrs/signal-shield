@@ -1,9 +1,21 @@
 "use client";
 
 const ENCODERS = [
-  { id: "resemblyzer", label: "Resemblyzer (LSTM)" },
-  { id: "ecapa", label: "ECAPA (CNN)" },
-  { id: "hubert", label: "HuBERT (Transformer)" },
+  {
+    id: "resemblyzer",
+    label: "Resemblyzer",
+    description: "LSTM-based encoder trained on speaker verification. Fast and lightweight.",
+  },
+  {
+    id: "ecapa",
+    label: "ECAPA-TDNN",
+    description: "CNN-based encoder with channel attention. Strong on short utterances.",
+  },
+  {
+    id: "hubert",
+    label: "HuBERT",
+    description: "Transformer-based self-supervised model. Captures deep speech features.",
+  },
 ] as const;
 
 interface EncoderSelectorProps {
@@ -13,9 +25,10 @@ interface EncoderSelectorProps {
 }
 
 export default function EncoderSelector({ selected, onChange, disabled }: EncoderSelectorProps) {
+  const noneSelected = selected.length === 0;
+
   function toggle(id: string) {
     if (selected.includes(id)) {
-      if (selected.length === 1) return;
       onChange(selected.filter((e) => e !== id));
     } else {
       onChange([...selected, id]);
@@ -27,16 +40,15 @@ export default function EncoderSelector({ selected, onChange, disabled }: Encode
       <legend className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
         Target encoders
       </legend>
-      <div className="flex flex-wrap gap-3">
-        {ENCODERS.map(({ id, label }) => {
+      <div className="flex flex-col gap-3">
+        {ENCODERS.map(({ id, label, description }) => {
           const checked = selected.includes(id);
-          const isLast = checked && selected.length === 1;
           return (
             <label
               key={id}
               className={`
-                flex items-center gap-2 rounded-lg border px-3 py-2 text-sm
-                transition-colors select-none
+                flex items-start gap-3 rounded-lg border px-3 py-2 text-sm
+                transition-colors select-none cursor-pointer
                 ${disabled
                   ? "border-zinc-200 text-zinc-400 cursor-not-allowed dark:border-zinc-800 dark:text-zinc-600"
                   : checked
@@ -48,15 +60,25 @@ export default function EncoderSelector({ selected, onChange, disabled }: Encode
               <input
                 type="checkbox"
                 checked={checked}
-                disabled={disabled || isLast}
+                disabled={disabled}
                 onChange={() => toggle(id)}
-                className="accent-blue-600"
+                className="accent-blue-600 mt-0.5"
               />
-              {label}
+              <div>
+                <span className="font-medium">{label}</span>
+                <p className={`text-xs mt-0.5 ${checked ? "text-blue-600 dark:text-blue-400" : "text-zinc-500 dark:text-zinc-500"}`}>
+                  {description}
+                </p>
+              </div>
             </label>
           );
         })}
       </div>
+      {noneSelected && (
+        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+          At least one encoder must be selected.
+        </p>
+      )}
     </fieldset>
   );
 }
