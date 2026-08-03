@@ -5,6 +5,7 @@
 import { useState } from "react";
 import LandingHero from "@/components/LandingHero";
 import FileUploader from "@/components/FileUploader";
+import EncoderSelector from "@/components/EncoderSelector";
 import ProcessingStatus from "@/components/ProcessingStatus";
 import DownloadButton from "@/components/DownloadButton";
 import { protectAudio } from "@/lib/api";
@@ -33,6 +34,7 @@ export default function Home() {
   const [status, setStatus] = useState<"idle" | "processing" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ blob: Blob, filename: string } | null>(null);
+  const [selectedEncoders, setSelectedEncoders] = useState<string[]>(["resemblyzer", "ecapa", "hubert"]);
 
 
   // Step 3: Write the handleFileSelected function
@@ -54,7 +56,7 @@ export default function Home() {
     setError(null);
     setResult(null);
     try {
-      const blob = await protectAudio(file);
+      const blob = await protectAudio(file, selectedEncoders);
       const name = file.name.replace(/\.[^.]+$/, "");   // strip extension
       setResult({ blob, filename: `protected_${name}.wav` });
       setStatus("done");
@@ -75,6 +77,11 @@ export default function Home() {
         <LandingHero />
         <FileUploader
           onFileSelected={handleFileSelected}
+          disabled={status === "processing"}
+        />
+        <EncoderSelector
+          selected={selectedEncoders}
+          onChange={setSelectedEncoders}
           disabled={status === "processing"}
         />
         <ProcessingStatus status={status} error={error} />

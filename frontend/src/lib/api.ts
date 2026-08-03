@@ -1,8 +1,9 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export async function protectAudio(file: File): Promise<Blob> {
+export async function protectAudio(file: File, encoders: string[]): Promise<Blob> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("encoders", encoders.join(","));
 
   let response: Response;
   try {

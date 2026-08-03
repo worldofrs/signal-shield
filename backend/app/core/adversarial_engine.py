@@ -202,7 +202,12 @@ def _get_hubert_embedding_differentiable(
     embedding = hidden_states.mean(dim=1).squeeze()  # (768,)
     return embedding / torch.norm(embedding, p=2)
 
-def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
+VALID_ENCODERS = {"resemblyzer", "ecapa", "hubert"}
+
+
+def apply_adversarial_protection(
+    y: np.ndarray, sr: int, encoders: list[str] | None = None
+) -> np.ndarray:
     """Apply adversarial perturbation optimized to confuse speaker encoders.
 
     Loads one model at a time to keep peak memory low. Each model runs a full
@@ -212,11 +217,15 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
     Args:
         y: Audio samples as a 1-D float32 numpy array.
         sr: Sample rate of the audio.
+        encoders: List of encoder names to use (subset of VALID_ENCODERS).
+                  Defaults to all encoders when None.
 
     Returns:
         Protected audio as a 1-D float32 numpy array (same length as input).
     """
     factories = _encoder_factories()
+    if encoders is not None:
+        factories = [(n, l, e) for n, l, e in factories if n in encoders]
 
     # Resample to 16kHz if needed (Resemblyzer expects 16kHz)
     audio_tensor = torch.from_numpy(y.copy()).float()
