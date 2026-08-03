@@ -4,9 +4,11 @@ These use FastAPI's TestClient, which lets you make fake HTTP requests
 to your app without actually starting a server. It's like curl but in Python.
 """
 
+import importlib
+from io import BytesIO
+
 import numpy as np
 import soundfile as sf
-from io import BytesIO
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -36,6 +38,25 @@ def test_health_returns_ok():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_cors_uses_configured_allowed_origins(monkeypatch):
+    """CORS should honor the configured origin list from the environment."""
+    monkeypatch.setenv("SS_ALLOWED_ORIGINS", "https://example.com")
+    import app.config as config_module
+    import app.main as main_module
+
+    importlib.reload(config_module)
+    importlib.reload(main_module)
+
+    cors_client = TestClient(main_module.app)
+    response = cors_client.get(
+        "/health",
+        headers={"Origin": "https://example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://example.com"
 
 
 # --- YOUR TURN ---

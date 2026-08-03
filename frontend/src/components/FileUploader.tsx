@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, DragEvent, ChangeEvent } from "react";
+import { useCallback, useRef, useState, DragEvent, ChangeEvent } from "react";
 
 interface FileUploaderProps {
   onFileSelected: (file: File) => void;
@@ -9,6 +9,7 @@ interface FileUploaderProps {
 
 export default function FileUploader({ onFileSelected, disabled }: FileUploaderProps) {
   const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(
     (file: File) => {
@@ -21,27 +22,49 @@ export default function FileUploader({ onFileSelected, disabled }: FileUploaderP
   const onDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
       e.preventDefault();
+      e.stopPropagation();
       setDragging(false);
-      const file = e.dataTransfer.files[0];
+
+      const file = e.dataTransfer?.files?.[0];
       if (file) handleFile(file);
     },
     [handleFile]
   );
 
-  const onDragOver = useCallback(
+  const onDragEnter = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
       e.preventDefault();
-      if (!disabled) setDragging(true);
+      e.stopPropagation();
+      if (!disabled && e.dataTransfer.types.includes("Files")) {
+        setDragging(true);
+      }
     },
     [disabled]
   );
 
-  const onDragLeave = useCallback(() => setDragging(false), []);
+  const onDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!disabled && e.dataTransfer.types.includes("Files")) {
+        setDragging(true);
+        e.dataTransfer.dropEffect = "copy";
+      }
+    },
+    [disabled]
+  );
+
+  const onDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+  }, []);
 
   const onChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) handleFile(file);
+      e.currentTarget.value = "";
     },
     [handleFile]
   );
@@ -49,10 +72,11 @@ export default function FileUploader({ onFileSelected, disabled }: FileUploaderP
   return (
     <div
       onDrop={onDrop}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       className={`
-        border-2 border-dashed rounded-xl p-12 text-center cursor-pointer
+        relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer
         transition-colors
         ${disabled
           ? "border-zinc-200 bg-zinc-50 text-zinc-400 cursor-not-allowed dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-600"
@@ -62,7 +86,11 @@ export default function FileUploader({ onFileSelected, disabled }: FileUploaderP
         }
       `}
     >
-      <label className="cursor-pointer">
+      <label
+        htmlFor="audio-upload"
+        className="relative block cursor-pointer"
+        onClick={() => inputRef.current?.click()}
+      >
         <p className="text-lg font-medium">
           {disabled ? "Processing..." : dragging ? "Drop your file here" : "Drag & drop an audio file here"}
         </p>
@@ -70,11 +98,13 @@ export default function FileUploader({ onFileSelected, disabled }: FileUploaderP
           {disabled ? "" : "or click to browse — .wav or .mp3, up to 50MB"}
         </p>
         <input
+          ref={inputRef}
+          id="audio-upload"
           type="file"
           accept=".wav,.mp3"
           onChange={onChange}
           disabled={disabled}
-          className="hidden"
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
       </label>
     </div>

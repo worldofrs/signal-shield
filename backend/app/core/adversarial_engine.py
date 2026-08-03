@@ -8,6 +8,8 @@ speaker embedding of (audio + delta) is as far as possible from the original emb
 while keeping delta small enough to be imperceptible.
 """
 
+from typing import Optional
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -37,7 +39,7 @@ _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 
 # Lazy-loaded encoder singleton — the model weights are ~17MB and only need
 # to load once. We keep it at module level so repeated calls reuse it.
-_encoder: VoiceEncoder | None = None
+_encoder: Optional[VoiceEncoder] = None
 _ecapa_encoder = None
 _hubert_model = None
 
@@ -206,7 +208,7 @@ VALID_ENCODERS = {"resemblyzer", "ecapa", "hubert"}
 
 
 def apply_adversarial_protection(
-    y: np.ndarray, sr: int, encoders: list[str] | None = None
+    y: np.ndarray, sr: int, encoders: Optional[list[str]] = None
 ) -> np.ndarray:
     """Apply adversarial perturbation optimized to confuse speaker encoders.
 
@@ -238,41 +240,53 @@ def apply_adversarial_protection(
     delta = torch.zeros_like(audio_tensor, requires_grad=True)
 
     # Process one model at a time to save memory
+    processed_any = False
     for name, loader_fn, embed_fn_factory in factories:
-        # Load the model
-        model = loader_fn()
-        model.eval()
-        embed_fn = embed_fn_factory(model)
+        try:
+            # Load the model
+            model = loader_fn()
+            model.eval()
+            embed_fn = embed_fn_factory(model)
 
-        # Get original embedding for this model
-        with torch.no_grad():
-            original_embedding = embed_fn(audio_tensor)
-
-        # PGD loop for this model
-        steps_per_model = settings.pgd_steps // len(factories)
-        for _ in range(steps_per_model):
-            perturbed_audio = audio_tensor + delta
-            perturbed_audio = _apply_input_diversity(perturbed_audio)
-            perturbed_embedding = embed_fn(perturbed_audio)
-
-            loss = F.cosine_similarity(
-                original_embedding.unsqueeze(0), perturbed_embedding.unsqueeze(0)
-            )
-
-            loss.backward()
-
+            # Get original embedding for this model
             with torch.no_grad():
-                delta_update = delta - settings.pgd_alpha * delta.grad.sign()  # type: ignore
-                delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
-                delta.data = delta_update
+                original_embedding = embed_fn(audio_tensor)
 
-            delta.grad.zero_()  # type: ignore
+            # PGD loop for this model
+            steps_per_model = settings.pgd_steps // max(1, len(factories))
+            for _ in range(steps_per_model):
+                perturbed_audio = audio_tensor + delta
+                perturbed_audio = _apply_input_diversity(perturbed_audio)
+                perturbed_embedding = embed_fn(perturbed_audio)
 
-        # Unload the model to free memory before loading the next one
-        del model, embed_fn, original_embedding
-        _clear_model_cache(name)
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        import gc; gc.collect()
+                loss = F.cosine_similarity(
+                    original_embedding.unsqueeze(0), perturbed_embedding.unsqueeze(0)
+                )
+
+                loss.backward()
+
+                with torch.no_grad():
+                    delta_update = delta - settings.pgd_alpha * delta.grad.sign()  # type: ignore
+                    delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
+                    delta.data = delta_update
+
+                delta.grad.zero_()  # type: ignore
+
+            processed_any = True
+        except Exception as exc:
+            print(f"Skipping encoder {name}: {exc}")
+        finally:
+            # Unload the model to free memory before loading the next one
+            try:
+                del model, embed_fn, original_embedding
+            except Exception:
+                pass
+            _clear_model_cache(name)
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            import gc; gc.collect()
+
+    if not processed_any:
+        raise RuntimeError("No encoder could be processed successfully")
 
     # Step 4: Apply the optimized perturbation
     with torch.no_grad():

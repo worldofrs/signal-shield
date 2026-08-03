@@ -1,10 +1,12 @@
+from typing import Optional
+
 import numpy as np
 
 from app.core.adversarial_engine import apply_adversarial_protection
 
 
 def apply_phase_protection(
-    y: np.ndarray, sr: int, encoders: list[str] | None = None
+    y: np.ndarray, sr: int, encoders: Optional[list[str]] = None
 ) -> np.ndarray:
     """Protect audio against voice cloning using adversarial perturbation.
 

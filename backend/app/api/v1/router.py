@@ -15,7 +15,7 @@ ALLOWED_EXTENSIONS = {".wav", ".mp3"}
 @router.post("/protect")
 async def protect_audio(
     file: UploadFile,
-    encoders: str = Form("resemblyzer,ecapa,hubert"),
+    encoders: str = Form("resemblyzer"),
 ):
     # Parse and validate encoder names
     encoder_list = [e.strip() for e in encoders.split(",") if e.strip()]
