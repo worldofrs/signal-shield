@@ -1,6 +1,8 @@
+import asyncio
+from io import BytesIO
+
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from io import BytesIO
 
 from app.config import settings
 from app.core.audio_io import load_audio, export_wav
@@ -10,6 +12,13 @@ from app.core.dsp_engine import apply_phase_protection
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a"}
+
+
+def _run_protection(file_bytes: bytes, filename: str, encoder_list: list[str]) -> bytes:
+    """CPU-bound load → protect → export pipeline (runs in a worker thread)."""
+    y, sr = load_audio(file_bytes, filename)
+    protected = apply_phase_protection(y, sr, encoders=encoder_list)
+    return export_wav(protected, sr)
 
 
 @router.post("/protect")
@@ -50,11 +59,11 @@ async def protect_audio(
             detail=f"File exceeds {settings.max_file_size_mb}MB limit",
         )
 
-    # Process: load -> phase protect -> export
+    # Offload CPU-bound work so /health and other requests stay responsive
     try:
-        y, sr = load_audio(file_bytes, filename)
-        protected = apply_phase_protection(y, sr, encoders=encoder_list)
-        wav_bytes = export_wav(protected, sr)
+        wav_bytes = await asyncio.to_thread(
+            _run_protection, file_bytes, filename, encoder_list
+        )
         print("yay it worked!")
     except Exception as e:
         print("something went wrong")
