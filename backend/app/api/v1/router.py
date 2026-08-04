@@ -9,7 +9,7 @@ from app.core.dsp_engine import apply_phase_protection
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {".wav", ".mp3"}
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a"}
 
 
 @router.post("/protect")
@@ -37,7 +37,7 @@ async def protect_audio(
         print("unsupported format")
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported format '{ext}'. Accepted: .wav, .mp3",
+            detail=f"Unsupported format '{ext}'. Accepted: .wav, .mp3, .m4a",
         )
 
     # Read file and validate size

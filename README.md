@@ -135,7 +135,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`, upload a `.wav` or `.mp3` file, and download the protected result. The first request is slower (~30s) because the Resemblyzer model loads on first use.
+Open `http://localhost:3000`, upload a `.wav`, `.mp3`, or `.m4a` file, and download the protected result. The first request is slower (~30s) because the Resemblyzer model loads on first use.
 
 ## Tests
 

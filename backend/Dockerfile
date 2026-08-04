@@ -11,7 +11,7 @@ FROM python:3.12-slim
 # libsndfile1 is a C library for reading/writing audio files.
 # soundfile (our Python package) is just a wrapper around it — without this,
 # "import soundfile" crashes.
-# ffmpeg is needed for MP3 support — librosa uses it to decode MP3 files.
+# ffmpeg is needed for MP3/M4A support — librosa uses it to decode those formats.
 #
 # apt-get is Linux's package manager (like pip but for system software).
 # rm -rf /var/lib/apt/lists/* cleans up the download cache to keep the image small.
