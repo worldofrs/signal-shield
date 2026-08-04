@@ -8,6 +8,7 @@ speaker embedding of (audio + delta) is as far as possible from the original emb
 while keeping delta small enough to be imperceptible.
 """
 
+import os
 from typing import Optional
 
 import numpy as np
@@ -16,6 +17,12 @@ import torch.nn.functional as F
 import torchaudio
 from resemblyzer import VoiceEncoder
 from app.config import settings
+
+# Must match scripts/prefetch_models.py and Dockerfile ENV when set.
+_ECAPA_SAVEDIR = os.environ.get(
+    "SS_ECAPA_SAVEDIR",
+    "pretrained_models/spkrec-ecapa-voxceleb",
+)
 
 class _EncoderWrapper:
     """Uniform interface for different speaker encoder architectures."""
@@ -55,7 +62,8 @@ def _get_ecapa_encoder():
     global _ecapa_encoder
     if _ecapa_encoder is None:
         _ecapa_encoder = EncoderClassifier.from_hparams(
-            source="speechbrain/spkrec-ecapa-voxceleb"
+            source="speechbrain/spkrec-ecapa-voxceleb",
+            savedir=_ECAPA_SAVEDIR,
         )
     return _ecapa_encoder
 
