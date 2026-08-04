@@ -8,13 +8,13 @@ speaker embedding of (audio + delta) is as far as possible from the original emb
 while keeping delta small enough to be imperceptible.
 """
 
+from typing import Optional
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torchaudio
 from resemblyzer import VoiceEncoder
-from speechbrain.inference.speaker import EncoderClassifier
-from transformers import HubertModel
 from app.config import settings
 
 class _EncoderWrapper:
@@ -39,9 +39,20 @@ _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 
 # Lazy-loaded encoder singleton — the model weights are ~17MB and only need
 # to load once. We keep it at module level so repeated calls reuse it.
-_encoder: VoiceEncoder | None = None
+_encoder: Optional[VoiceEncoder] = None
 _ecapa_encoder = None
 _hubert_model = None
+
+def _clear_model_cache(name: str):
+    """Remove a model from the singleton cache to free memory."""
+    global _encoder, _ecapa_encoder, _hubert_model
+    if name == "resemblyzer":
+        _encoder = None
+    elif name == "ecapa":
+        _ecapa_encoder = None
+    elif name == "hubert":
+        _hubert_model = None
+
 
 def _get_encoder() -> VoiceEncoder:
     """Load the Resemblyzer encoder once, on first use."""
@@ -51,6 +62,7 @@ def _get_encoder() -> VoiceEncoder:
     return _encoder
 
 def _get_ecapa_encoder():
+    from speechbrain.inference.speaker import EncoderClassifier
     global _ecapa_encoder
     if _ecapa_encoder is None:
         _ecapa_encoder = EncoderClassifier.from_hparams(
@@ -59,31 +71,35 @@ def _get_ecapa_encoder():
     return _ecapa_encoder
 
 def _get_hubert_model():
+    from transformers import HubertModel
     global _hubert_model
     if _hubert_model is None:
         _hubert_model = HubertModel.from_pretrained("facebook/hubert-base-ls960")
     return _hubert_model
 
-def _get_encoders() -> list:
-    encoder = _get_encoder()
-    ecapa_encoder = _get_ecapa_encoder()
-    hubert_encoder = _get_hubert_model()
+def _encoder_factories() -> list:
+    """Return a list of (name, loader_fn, embed_fn_factory) tuples.
+
+    Each loader_fn() returns the model, and embed_fn_factory(model)
+    returns the embedding function. Models are NOT loaded here —
+    the caller decides when to load/unload.
+    """
     return [
-        _EncoderWrapper(
-            name="resemblyzer",
-            model=encoder,
-            embed_fn=lambda audio, enc=encoder: _get_embedding_differentiable(audio, enc)
+        (
+            "resemblyzer",
+            _get_encoder,
+            lambda enc: lambda audio, e=enc: _get_embedding_differentiable(audio, e),
         ),
-        _EncoderWrapper(
-            name="ecapa",
-            model=ecapa_encoder,
-            embed_fn=lambda audio, enc=ecapa_encoder: _get_ecapa_embedding_differentiable(audio, enc)
+        (
+            "ecapa",
+            _get_ecapa_encoder,
+            lambda enc: lambda audio, e=enc: _get_ecapa_embedding_differentiable(audio, e),
         ),
-        _EncoderWrapper(
-            name="hubert",
-            model=hubert_encoder,
-            embed_fn=lambda audio, enc=hubert_encoder: _get_hubert_embedding_differentiable(audio, enc)
-        )
+        (
+            "hubert",
+            _get_hubert_model,
+            lambda enc: lambda audio, e=enc: _get_hubert_embedding_differentiable(audio, e),
+        ),
     ]
 
 
@@ -159,7 +175,7 @@ def _get_embedding_differentiable(
     return embedding
 
 def _get_ecapa_embedding_differentiable(
-        audio: torch.Tensor, classifier: EncoderClassifier
+        audio: torch.Tensor, classifier
 ) -> torch.Tensor:
     # SpeechBrain expects (batch, time) — audio is 1D, so unsqueeze
     wavs = audio.unsqueeze(0)
@@ -175,7 +191,7 @@ def _get_ecapa_embedding_differentiable(
     return embeddings / torch.norm(embeddings, p=2)
 
 def _get_hubert_embedding_differentiable(
-        audio: torch.Tensor, model: HubertModel
+        audio: torch.Tensor, model
 ) -> torch.Tensor:
     # Normalize (same as Wav2Vec2FeatureExtractor but differentiable)
     audio_normalized = (audio - audio.mean()) / (audio.std() + 1e-7)
@@ -188,25 +204,30 @@ def _get_hubert_embedding_differentiable(
     embedding = hidden_states.mean(dim=1).squeeze()  # (768,)
     return embedding / torch.norm(embedding, p=2)
 
-def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
+VALID_ENCODERS = {"resemblyzer", "ecapa", "hubert"}
+
+
+def apply_adversarial_protection(
+    y: np.ndarray, sr: int, encoders: Optional[list[str]] = None
+) -> np.ndarray:
     """Apply adversarial perturbation optimized to confuse speaker encoders.
 
-    Uses PGD (Projected Gradient Descent) to find a small perturbation delta such
-    that the speaker embedding of (y + delta) is maximally different from the
-    embedding of y, while delta stays within [-epsilon, epsilon].
-
-    Same signature as the old apply_phase_protection: (np.ndarray, int) → np.ndarray.
+    Loads one model at a time to keep peak memory low. Each model runs a full
+    round of PGD steps to refine the shared delta, then is unloaded before the
+    next model is loaded.
 
     Args:
         y: Audio samples as a 1-D float32 numpy array.
         sr: Sample rate of the audio.
+        encoders: List of encoder names to use (subset of VALID_ENCODERS).
+                  Defaults to all encoders when None.
 
     Returns:
         Protected audio as a 1-D float32 numpy array (same length as input).
     """
-    encoders = _get_encoders()
-    for enc in encoders:                                                                                
-        enc.eval()
+    factories = _encoder_factories()
+    if encoders is not None:
+        factories = [(n, l, e) for n, l, e in factories if n in encoders]
 
     # Resample to 16kHz if needed (Resemblyzer expects 16kHz)
     audio_tensor = torch.from_numpy(y.copy()).float()
@@ -215,38 +236,57 @@ def apply_adversarial_protection(y: np.ndarray, sr: int) -> np.ndarray:
             audio_tensor, orig_freq=sr, new_freq=_RESEMBLYZER_SR
         )
 
-    # Step 1: Get the original embedding (no gradients needed for this)
-    with torch.no_grad():
-        original_embeddings = [enc.get_embedding(audio_tensor) for enc in encoders]
-
-    # Step 2: Create the perturbation tensor — this is what we optimize
+    # Create the perturbation tensor — shared across all models
     delta = torch.zeros_like(audio_tensor, requires_grad=True)
 
-    # Step 3: PGD loop — iteratively refine delta to maximize embedding distance
-    for _ in range(settings.pgd_steps):
-        # Forward pass: get embedding of perturbed audio
-        perturbed_audio = audio_tensor + delta
-        perturbed_audio = _apply_input_diversity(perturbed_audio)
-        perturbed_embeddings = [enc.get_embedding(perturbed_audio) for enc in encoders]
+    # Process one model at a time to save memory
+    processed_any = False
+    for name, loader_fn, embed_fn_factory in factories:
+        try:
+            # Load the model
+            model = loader_fn()
+            model.eval()
+            embed_fn = embed_fn_factory(model)
 
-        # Loss: cosine similarity (we want to MINIMIZE this, i.e. push embeddings apart)
-        loss = torch.tensor(0.0)
-        for orig_emb, pert_emb in zip(original_embeddings, perturbed_embeddings):
-            loss = loss + F.cosine_similarity(orig_emb.unsqueeze(0), pert_emb.unsqueeze(0))
+            # Get original embedding for this model
+            with torch.no_grad():
+                original_embedding = embed_fn(audio_tensor)
 
-        # Backward pass: compute gradient of loss w.r.t. delta
-        loss.backward()
+            # PGD loop for this model
+            steps_per_model = settings.pgd_steps // max(1, len(factories))
+            for _ in range(steps_per_model):
+                perturbed_audio = audio_tensor + delta
+                perturbed_audio = _apply_input_diversity(perturbed_audio)
+                perturbed_embedding = embed_fn(perturbed_audio)
 
-        # Update delta in the direction that DECREASES similarity
-        # (gradient descent on cosine similarity = moving embeddings apart)
-        with torch.no_grad():
-            delta_update = delta - settings.pgd_alpha * delta.grad.sign() # type: ignore
-            # Project back into epsilon-ball (clamp perturbation magnitude)
-            delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
-            delta.data = delta_update
+                loss = F.cosine_similarity(
+                    original_embedding.unsqueeze(0), perturbed_embedding.unsqueeze(0)
+                )
 
-        # Reset gradients for next iteration
-        delta.grad.zero_() # type: ignore
+                loss.backward()
+
+                with torch.no_grad():
+                    delta_update = delta - settings.pgd_alpha * delta.grad.sign()  # type: ignore
+                    delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
+                    delta.data = delta_update
+
+                delta.grad.zero_()  # type: ignore
+
+            processed_any = True
+        except Exception as exc:
+            print(f"Skipping encoder {name}: {exc}")
+        finally:
+            # Unload the model to free memory before loading the next one
+            try:
+                del model, embed_fn, original_embedding
+            except Exception:
+                pass
+            _clear_model_cache(name)
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            import gc; gc.collect()
+
+    if not processed_any:
+        raise RuntimeError("No encoder could be processed successfully")
 
     # Step 4: Apply the optimized perturbation
     with torch.no_grad():
