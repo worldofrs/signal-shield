@@ -43,17 +43,6 @@ _encoder: Optional[VoiceEncoder] = None
 _ecapa_encoder = None
 _hubert_model = None
 
-def _clear_model_cache(name: str):
-    """Remove a model from the singleton cache to free memory."""
-    global _encoder, _ecapa_encoder, _hubert_model
-    if name == "resemblyzer":
-        _encoder = None
-    elif name == "ecapa":
-        _ecapa_encoder = None
-    elif name == "hubert":
-        _hubert_model = None
-
-
 def _get_encoder() -> VoiceEncoder:
     """Load the Resemblyzer encoder once, on first use."""
     global _encoder
@@ -82,7 +71,7 @@ def _encoder_factories() -> list:
 
     Each loader_fn() returns the model, and embed_fn_factory(model)
     returns the embedding function. Models are NOT loaded here —
-    the caller decides when to load/unload.
+    loaders keep warm singletons across requests.
     """
     return [
         (
@@ -212,9 +201,8 @@ def apply_adversarial_protection(
 ) -> np.ndarray:
     """Apply adversarial perturbation optimized to confuse speaker encoders.
 
-    Loads one model at a time to keep peak memory low. Each model runs a full
-    round of PGD steps to refine the shared delta, then is unloaded before the
-    next model is loaded.
+    Processes encoders sequentially against a shared delta. Models are kept as
+    warm singletons so subsequent requests skip reload cost.
 
     Args:
         y: Audio samples as a 1-D float32 numpy array.
@@ -239,11 +227,10 @@ def apply_adversarial_protection(
     # Create the perturbation tensor — shared across all models
     delta = torch.zeros_like(audio_tensor, requires_grad=True)
 
-    # Process one model at a time to save memory
+    # Process one model at a time (peak memory stays lower than loading all at once)
     processed_any = False
     for name, loader_fn, embed_fn_factory in factories:
         try:
-            # Load the model
             model = loader_fn()
             model.eval()
             embed_fn = embed_fn_factory(model)
@@ -275,15 +262,6 @@ def apply_adversarial_protection(
             processed_any = True
         except Exception as exc:
             print(f"Skipping encoder {name}: {exc}")
-        finally:
-            # Unload the model to free memory before loading the next one
-            try:
-                del model, embed_fn, original_embedding
-            except Exception:
-                pass
-            _clear_model_cache(name)
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
-            import gc; gc.collect()
 
     if not processed_any:
         raise RuntimeError("No encoder could be processed successfully")
