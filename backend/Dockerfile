@@ -36,4 +36,4 @@ COPY . .
 # Step 6: Tell Docker what command starts the app
 # 0.0.0.0 means "listen on all network interfaces" (required in containers).
 # $PORT is an environment variable Railway sets automatically.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-2}"]

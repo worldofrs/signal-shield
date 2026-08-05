@@ -26,5 +26,8 @@ class Settings(BaseSettings):
     pgd_epsilon: float = 0.01
     pgd_alpha: float = 0.001
 
+    # PyTorch thread count (0 = auto-detect via os.cpu_count())
+    torch_threads: int = 0
+
 
 settings = Settings()
