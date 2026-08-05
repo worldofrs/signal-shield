@@ -72,6 +72,10 @@ def _get_hubert_model():
     global _hubert_model
     if _hubert_model is None:
         _hubert_model = HubertModel.from_pretrained("facebook/hubert-base-ls960")
+        # PGD only needs gradients w.r.t. the waveform, not HuBERT weights.
+        # Skipping param grads roughly halves backward cost.
+        _hubert_model.requires_grad_(False)
+        _hubert_model.eval()
     return _hubert_model
 
 def _encoder_factories() -> list:
@@ -202,6 +206,29 @@ def _get_hubert_embedding_differentiable(
     return embedding / torch.norm(embedding, p=2)
 
 VALID_ENCODERS = {"resemblyzer", "ecapa", "hubert"}
+
+# ~1s of silence at 16kHz — enough to exercise each embed path at warmup.
+_WARMUP_AUDIO = torch.zeros(16_000)
+
+
+def warmup_encoders(names: Optional[list[str]] = None) -> None:
+    """Load encoder weights into RAM and run a dummy forward pass.
+
+    Prefetch (Docker build) only puts files on disk. This moves them into
+    memory so the first /protect request does not pay deserialize cost.
+    """
+    factories = _encoder_factories()
+    if names is not None:
+        factories = [(n, l, e) for n, l, e in factories if n in names]
+
+    for name, loader_fn, embed_fn_factory in factories:
+        print(f"Warming up encoder: {name}")
+        model = loader_fn()
+        model.eval()
+        embed_fn = embed_fn_factory(model)
+        with torch.no_grad():
+            embed_fn(_WARMUP_AUDIO)
+        print(f"Encoder ready: {name}")
 
 
 def apply_adversarial_protection(

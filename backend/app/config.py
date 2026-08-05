@@ -26,5 +26,14 @@ class Settings(BaseSettings):
     pgd_epsilon: float = 0.01
     pgd_alpha: float = 0.001
 
+    # Startup warmup — SS_WARMUP=true|false toggles loading models into RAM at boot.
+    # SS_WARMUP_ENCODERS picks which models (comma-separated) when warmup is on.
+    warmup: bool = True
+    warmup_encoders: str = "resemblyzer"
+
+    @property
+    def warmup_encoders_list(self) -> list[str]:
+        return [e.strip() for e in self.warmup_encoders.split(",") if e.strip()]
+
 
 settings = Settings()
