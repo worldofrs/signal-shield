@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     @property
     def warmup_encoders_list(self) -> list[str]:
         return [e.strip() for e in self.warmup_encoders.split(",") if e.strip()]
+    # PyTorch thread count (0 = auto-detect via os.cpu_count())
+    torch_threads: int = 0
 
 
 settings = Settings()

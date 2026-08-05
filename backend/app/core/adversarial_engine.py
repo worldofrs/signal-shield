@@ -8,7 +8,10 @@ speaker embedding of (audio + delta) is as far as possible from the original emb
 while keeping delta small enough to be imperceptible.
 """
 
+import gc
+import logging
 import os
+import time
 from typing import Optional
 
 import numpy as np
@@ -23,6 +26,12 @@ _ECAPA_SAVEDIR = os.environ.get(
     "SS_ECAPA_SAVEDIR",
     "pretrained_models/spkrec-ecapa-voxceleb",
 )
+logger = logging.getLogger("signal_shield.adversarial")
+
+# Configure PyTorch thread count for parallel tensor operations
+_thread_count = settings.torch_threads if settings.torch_threads > 0 else (os.cpu_count() or 4)
+torch.set_num_threads(_thread_count)
+logger.info("PyTorch using %d threads", _thread_count)
 
 class _EncoderWrapper:
     """Uniform interface for different speaker encoder architectures."""
@@ -54,28 +63,34 @@ def _get_encoder() -> VoiceEncoder:
     """Load the Resemblyzer encoder once, on first use."""
     global _encoder
     if _encoder is None:
+        logger.info("Loading Resemblyzer encoder...")
         _encoder = VoiceEncoder(device="cpu")
+        logger.info("Resemblyzer encoder loaded")
     return _encoder
 
 def _get_ecapa_encoder():
     from speechbrain.inference.speaker import EncoderClassifier
     global _ecapa_encoder
     if _ecapa_encoder is None:
+        logger.info("Loading ECAPA-TDNN encoder...")
         _ecapa_encoder = EncoderClassifier.from_hparams(
             source="speechbrain/spkrec-ecapa-voxceleb",
             savedir=_ECAPA_SAVEDIR,
         )
+        logger.info("ECAPA-TDNN encoder loaded")
     return _ecapa_encoder
 
 def _get_hubert_model():
     from transformers import HubertModel
     global _hubert_model
     if _hubert_model is None:
+        logger.info("Loading HuBERT encoder...")
         _hubert_model = HubertModel.from_pretrained("facebook/hubert-base-ls960")
         # PGD only needs gradients w.r.t. the waveform, not HuBERT weights.
         # Skipping param grads roughly halves backward cost.
         _hubert_model.requires_grad_(False)
         _hubert_model.eval()
+        logger.info("HuBERT encoder loaded")
     return _hubert_model
 
 def _encoder_factories() -> list:
@@ -238,6 +253,10 @@ def apply_adversarial_protection(
 
     Processes encoders sequentially against a shared delta. Models are kept as
     warm singletons so subsequent requests skip reload cost.
+    Uses joint optimization: all selected encoders are loaded simultaneously,
+    and a single PGD loop minimizes the sum of cosine similarities across all
+    encoders. This produces better adversarial examples than sequential
+    optimization and runs the full pgd_steps (not divided per encoder).
 
     Args:
         y: Audio samples as a 1-D float32 numpy array.
@@ -251,6 +270,9 @@ def apply_adversarial_protection(
     factories = _encoder_factories()
     if encoders is not None:
         factories = [(n, l, e) for n, l, e in factories if n in encoders]
+
+    encoder_names = [n for n, _, _ in factories]
+    logger.info("Starting adversarial protection with encoders: %s, audio length: %d samples", encoder_names, len(y))
 
     # Resample to 16kHz if needed (Resemblyzer expects 16kHz)
     audio_tensor = torch.from_numpy(y.copy()).float()
@@ -266,9 +288,20 @@ def apply_adversarial_protection(
     processed_any = False
     for name, loader_fn, embed_fn_factory in factories:
         try:
+    # --- Load all selected encoders at once ---
+    loaded_encoders: list[tuple[str, object]] = []  # (name, embed_fn)
+    load_start = time.time()
+    for name, loader_fn, embed_fn_factory in factories:
+        try:
+            logger.info("Loading encoder '%s'...", name)
             model = loader_fn()
             model.eval()
             embed_fn = embed_fn_factory(model)
+            loaded_encoders.append((name, embed_fn))
+            logger.info("Encoder '%s' loaded", name)
+        except Exception:
+            logger.exception("Encoder '%s' failed to load, skipping", name)
+    logger.info("Loaded %d/%d encoders in %.1fs", len(loaded_encoders), len(factories), time.time() - load_start)
 
             # Get original embedding for this model
             with torch.no_grad():
@@ -302,6 +335,53 @@ def apply_adversarial_protection(
         raise RuntimeError("No encoder could be processed successfully")
 
     # Step 4: Apply the optimized perturbation
+    if not loaded_encoders:
+        raise RuntimeError("No encoder could be loaded successfully")
+
+    # --- Compute original embeddings for all encoders (no grad needed) ---
+    original_embeddings: list[torch.Tensor] = []
+    with torch.no_grad():
+        for name, embed_fn in loaded_encoders:
+            original_embeddings.append(embed_fn(audio_tensor))
+
+    # --- Single joint PGD loop ---
+    delta = torch.zeros_like(audio_tensor, requires_grad=True)
+    pgd_start = time.time()
+    logger.info("Running %d joint PGD steps across %d encoders", settings.pgd_steps, len(loaded_encoders))
+
+    for step in range(settings.pgd_steps):
+        perturbed_audio = audio_tensor + delta
+        perturbed_audio = _apply_input_diversity(perturbed_audio)
+
+        # Sum cosine similarities across all encoders
+        total_loss = torch.tensor(0.0)
+        for (name, embed_fn), orig_emb in zip(loaded_encoders, original_embeddings):
+            pert_emb = embed_fn(perturbed_audio)
+            total_loss = total_loss + F.cosine_similarity(
+                orig_emb.unsqueeze(0), pert_emb.unsqueeze(0)
+            )
+
+        total_loss.backward()
+
+        with torch.no_grad():
+            delta_update = delta - settings.pgd_alpha * delta.grad.sign()  # type: ignore
+            delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
+            delta.data = delta_update
+
+        delta.grad.zero_()  # type: ignore
+
+    logger.info("Joint PGD complete in %.1fs", time.time() - pgd_start)
+
+    # --- Unload all models to free memory ---
+    loaded_encoder_names = [name for name, _ in loaded_encoders]
+    del loaded_encoders, original_embeddings
+    for name in loaded_encoder_names:
+        _clear_model_cache(name)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+
+    # Apply the optimized perturbation
     with torch.no_grad():
         protected_16k = (audio_tensor + delta).numpy()
 
