@@ -23,68 +23,88 @@ import { protectAudio } from "@/lib/api";
 //   error:      FileUploader enabled + error message
 
 export default function Home() {
-  // Step 2: Set up state variables
-  // You need three pieces of state:
-  //   - status: which state we're in ("idle", "processing", "done", or "error")
-  //   - error: the error message string (or null if no error)
-  //   - result: an object with { blob, filename } for the download (or null if no result yet)
-  //
-  // Syntax: const [value, setValue] = useState(initialValue)
-
-  const [status, setStatus] = useState<"idle" | "processing" | "done" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "ready" | "processing" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ blob: Blob, filename: string } | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedEncoders, setSelectedEncoders] = useState<string[]>(["resemblyzer", "ecapa", "hubert"]);
 
+  function handleFileSelected(file: File) {
+    setSelectedFile(file);
+    setStatus("ready");
+    setError(null);
+    setResult(null);
+  }
 
-  // Step 3: Write the handleFileSelected function
-  // This runs when the user drops/selects a file. It should:
-  //   1. Set status to "processing" (shows spinner, disables uploader)
-  //   2. Clear any previous error and result
-  //   3. Call protectAudio(file) from our API module (it returns a Promise<Blob>)
-  //   4. If successful: set result to { blob: <the blob>, filename: "protected_<original name>" }
-  //      and set status to "done"
-  //   5. If it fails: set error to the error message and set status to "error"
-  //
-  // This needs to be an async function because protectAudio returns a Promise.
-  // Use try/catch to handle success vs failure.
-  //
-  // YOUR CODE: write the function below
-  // Hint:
-  async function handleFileSelected(file: File) {
+  async function handleStartProcessing() {
+    if (!selectedFile) return;
     setStatus("processing");
     setError(null);
     setResult(null);
     try {
-      const blob = await protectAudio(file, selectedEncoders);
-      const name = file.name.replace(/\.[^.]+$/, "");   // strip extension
-      setResult({ blob, filename: `protected_${name}.wav` });
+      const blob = await protectAudio(selectedFile, selectedEncoders);
+      const name = selectedFile.name.replace(/\.[^.]+$/, "");
+      const filename = `protected_${name}.wav`;
+      setResult({ blob, filename });
       setStatus("done");
+
+      // Auto-download the protected file
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setStatus("error");
     }
   }
 
-
-  // Step 4: Render the components
-  // The JSX below is already wired up. Once you write Steps 2 and 3,
-  // it will work because each component reads from the state you defined.
   return (
     <div className="flex flex-col flex-1 items-center bg-zinc-50 dark:bg-black">
       <main className="w-full max-w-2xl px-6 py-12">
-        {/* Always visible */}
         <LandingHero />
         <FileUploader
           onFileSelected={handleFileSelected}
           disabled={status === "processing" || selectedEncoders.length === 0}
         />
+
+        {selectedFile && status !== "processing" && (
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900">
+            <span className="text-sm text-zinc-600 dark:text-zinc-400 truncate">
+              {selectedFile.name}
+            </span>
+            <button
+              onClick={() => { setSelectedFile(null); setStatus("idle"); setResult(null); setError(null); }}
+              className="ml-3 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
         <EncoderSelector
           selected={selectedEncoders}
           onChange={setSelectedEncoders}
           disabled={status === "processing"}
         />
-        <ProcessingStatus status={status} error={error} />
+
+        {selectedFile && (status === "ready" || status === "error") && (
+          <div className="flex justify-center py-4">
+            <button
+              onClick={handleStartProcessing}
+              disabled={selectedEncoders.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-8 py-3 text-sm font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Protect Audio
+            </button>
+          </div>
+        )}
+
+        <ProcessingStatus status={status === "ready" ? "idle" : status} error={error} />
         {result && <DownloadButton blob={result.blob} filename={result.filename} />}
       </main>
     </div>
