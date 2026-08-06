@@ -95,13 +95,13 @@ export default function FileUploader({ onFileSelected, disabled }: FileUploaderP
           {disabled ? "Processing..." : dragging ? "Drop your file here" : "Drag & drop an audio file here"}
         </p>
         <p className="mt-2 text-sm">
-          {disabled ? "" : "or click to browse — .wav or .mp3, up to 50MB"}
+          {disabled ? "" : "or click to browse — .wav, .mp3, or .m4a, up to 50MB"}
         </p>
         <input
           ref={inputRef}
           id="audio-upload"
           type="file"
-          accept=".wav,.mp3"
+          accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a"
           onChange={onChange}
           disabled={disabled}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"

@@ -1,5 +1,8 @@
+import os
 import logging
 from io import BytesIO
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import librosa
 import numpy as np
@@ -12,6 +15,19 @@ logger = logging.getLogger("signal_shield.audio_io")
 
 def load_audio(file_bytes: bytes, filename: str) -> tuple[np.ndarray, int]:
     """Load audio bytes into a numpy array, resampled to mono at the configured sample rate."""
+    suffix = Path(filename).suffix.lower() or ".wav"
+    # Write to a named temp file so ffmpeg (via librosa/audioread) can
+    # detect format from the extension — needed for .mp3 / .m4a.
+    # delete=False + manual unlink: on Windows the file must be closed
+    # before another process (ffmpeg) can open it.
+    tmp = NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(file_bytes)
+        tmp.close()
+        y, sr = librosa.load(tmp.name, sr=settings.sample_rate, mono=True)
+    finally:
+        os.unlink(tmp.name)
+    return y, sr  # type: ignore
     logger.info("Loading audio '%s' (%d bytes)", filename, len(file_bytes))
     buf = BytesIO(file_bytes)
     y, sr = librosa.load(buf, sr=settings.sample_rate, mono=True)

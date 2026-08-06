@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     # CORS — which frontend origins can call this API
     # Accepts a comma-separated string, e.g. "https://example.com,http://localhost:3000"
-    allowed_origins: str = "http://localhost:3000"
+    allowed_origins: str = "http://localhost:3000,https://signalshield.up.railway.app"
 
     @property
     def allowed_origins_list(self) -> list[str]:
@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     pgd_epsilon: float = 0.01
     pgd_alpha: float = 0.001
 
+    # Startup warmup — SS_WARMUP=true|false toggles loading models into RAM at boot.
+    # SS_WARMUP_ENCODERS picks which models (comma-separated) when warmup is on.
+    warmup: bool = True
+    warmup_encoders: str = "resemblyzer"
+
+    @property
+    def warmup_encoders_list(self) -> list[str]:
+        return [e.strip() for e in self.warmup_encoders.split(",") if e.strip()]
     # PyTorch thread count (0 = auto-detect via os.cpu_count())
     torch_threads: int = 0
 

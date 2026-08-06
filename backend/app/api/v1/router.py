@@ -1,9 +1,10 @@
+import asyncio
+from io import BytesIO
 import logging
 import time
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from io import BytesIO
 
 from app.config import settings
 from app.core.audio_io import load_audio, export_wav
@@ -14,7 +15,14 @@ logger = logging.getLogger("signal_shield.router")
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {".wav", ".mp3"}
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a"}
+
+
+def _run_protection(file_bytes: bytes, filename: str, encoder_list: list[str]) -> bytes:
+    """CPU-bound load -> protect -> export pipeline (runs in a worker thread)."""
+    y, sr = load_audio(file_bytes, filename)
+    protected = apply_phase_protection(y, sr, encoders=encoder_list)
+    return export_wav(protected, sr)
 
 
 @router.post("/protect")
@@ -42,7 +50,7 @@ async def protect_audio(
         logger.warning("Rejected file with unsupported format: %s", ext)
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported format '{ext}'. Accepted: .wav, .mp3",
+            detail=f"Unsupported format '{ext}'. Accepted: .wav, .mp3, .m4a",
         )
 
     # Read file and validate size
@@ -58,18 +66,13 @@ async def protect_audio(
 
     logger.info("Processing '%s' (%.1fMB) with encoders: %s", filename, file_size_mb, encoder_list)
 
-    # Process: load -> phase protect -> export
+    # Offload CPU-bound work so /health and other requests stay responsive
     try:
         start = time.time()
-
-        y, sr = load_audio(file_bytes, filename)
-        logger.info("Audio loaded: %.1fs duration, sr=%d", len(y) / sr, sr)
-
-        protected = apply_phase_protection(y, sr, encoders=encoder_list)
+        wav_bytes = await asyncio.to_thread(
+            _run_protection, file_bytes, filename, encoder_list
+        )
         logger.info("Protection complete in %.1fs", time.time() - start)
-
-        wav_bytes = export_wav(protected, sr)
-        logger.info("WAV export complete, %d bytes", len(wav_bytes))
     except Exception as e:
         logger.exception("Processing failed for '%s'", filename)
         raise HTTPException(
