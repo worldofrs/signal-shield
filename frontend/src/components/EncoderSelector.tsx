@@ -5,16 +5,25 @@ const ENCODERS = [
     id: "xvector",
     label: "X-Vector",
     description: "TDNN-based encoder with statistics pooling. Fast and lightweight.",
+    color: "text-[#0047ab]",
+    checkBg: "bg-[#0047ab]",
+    borderColor: "border-[#0047ab]/30",
   },
   {
     id: "ecapa",
     label: "ECAPA-TDNN",
     description: "CNN-based encoder with channel attention. Strong on short utterances.",
+    color: "text-[#16a34a]",
+    checkBg: "bg-[#16a34a]",
+    borderColor: "border-[#16a34a]/30",
   },
   {
     id: "hubert",
     label: "HuBERT",
     description: "Transformer-based self-supervised model. Captures deep speech features.",
+    color: "text-[#0891b2]",
+    checkBg: "bg-[#0891b2]",
+    borderColor: "border-[#0891b2]/30",
   },
 ] as const;
 
@@ -36,46 +45,58 @@ export default function EncoderSelector({ selected, onChange, disabled }: Encode
   }
 
   return (
-    <fieldset className="mt-6 mb-2" disabled={disabled}>
-      <legend className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-        Target encoders
+    <fieldset className="mt-8 mb-2" disabled={disabled}>
+      <legend className="text-[13px] font-medium text-[#52575c] uppercase tracking-[0.65px] mb-3">
+        Target encoders to defend against
       </legend>
       <div className="flex flex-col gap-3">
-        {ENCODERS.map(({ id, label, description }) => {
+        {ENCODERS.map(({ id, label, description, color, checkBg, borderColor }) => {
           const checked = selected.includes(id);
           return (
             <label
               key={id}
               className={`
-                flex items-start gap-3 rounded-lg border px-3 py-2 text-sm
+                flex items-start gap-4 rounded-[14px] border p-[17px] text-sm
                 transition-colors select-none cursor-pointer
+                shadow-[0px_1px_1.5px_rgba(0,0,0,0.1),0px_1px_1px_rgba(0,0,0,0.1)]
                 ${disabled
-                  ? "border-zinc-200 text-zinc-400 cursor-not-allowed dark:border-zinc-800 dark:text-zinc-600"
+                  ? "border-[#eaedf2] bg-[#f8f9fc] text-[#878b8f] cursor-not-allowed"
                   : checked
-                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-600"
-                    : "border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600"
+                    ? `${borderColor} bg-white`
+                    : "border-[#eaedf2] bg-white hover:border-[#0047ab]/20"
                 }
               `}
             >
+              <div className="mt-1 flex-shrink-0">
+                <div className={`w-3 h-3 rounded-[6px] flex items-center justify-center ${
+                  checked ? checkBg : "bg-[#eaedf2]"
+                }`}>
+                  {checked && (
+                    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                      <path d="M1.5 4.5L3.5 6.5L7.5 2.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className={`text-sm font-medium ${checked ? color : "text-[#0a0b0d]"}`}>{label}</span>
+                <p className="text-[13px] font-medium text-[#878b8f] mt-0.5">
+                  {description}
+                </p>
+              </div>
               <input
                 type="checkbox"
                 checked={checked}
                 disabled={disabled}
                 onChange={() => toggle(id)}
-                className="accent-blue-600 mt-0.5"
+                className="sr-only"
               />
-              <div>
-                <span className="font-medium">{label}</span>
-                <p className={`text-xs mt-0.5 ${checked ? "text-blue-600 dark:text-blue-400" : "text-zinc-500 dark:text-zinc-500"}`}>
-                  {description}
-                </p>
-              </div>
             </label>
           );
         })}
       </div>
       {noneSelected && (
-        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           At least one encoder must be selected.
         </p>
       )}
