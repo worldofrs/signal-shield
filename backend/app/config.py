@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     pgd_epsilon: float = 0.01
     pgd_alpha: float = 0.001
 
+    # Custom-trained model paths (empty = use SpeechBrain pretrained from HuggingFace)
+    ecapa_model_path: str = ""
+    xvector_model_path: str = ""
+
     # PyTorch thread count (0 = auto-detect via os.cpu_count())
     torch_threads: int = 0
 

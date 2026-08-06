@@ -27,7 +27,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ blob: Blob, filename: string } | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedEncoders, setSelectedEncoders] = useState<string[]>(["resemblyzer", "ecapa", "hubert"]);
+  const [selectedEncoders, setSelectedEncoders] = useState<string[]>(["xvector", "ecapa", "hubert"]);
 
   function handleFileSelected(file: File) {
     setSelectedFile(file);

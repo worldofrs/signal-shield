@@ -2,9 +2,9 @@
 
 const ENCODERS = [
   {
-    id: "resemblyzer",
-    label: "Resemblyzer",
-    description: "LSTM-based encoder trained on speaker verification. Fast and lightweight.",
+    id: "xvector",
+    label: "X-Vector",
+    description: "TDNN-based encoder with statistics pooling. Fast and lightweight.",
   },
   {
     id: "ecapa",
