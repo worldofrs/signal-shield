@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     # CORS — which frontend origins can call this API
     # Accepts a comma-separated string, e.g. "https://example.com,http://localhost:3000"
-    allowed_origins: str = "http://localhost:3000"
+    allowed_origins: str = "http://localhost:3000,https://signalshield.up.railway.app"
 
     @property
     def allowed_origins_list(self) -> list[str]:
