@@ -10,6 +10,13 @@ from app.config import settings
 from app.api.v1.router import router as v1_router
 from app.core.adversarial_engine import VALID_ENCODERS, warmup_encoders
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("signal_shield")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -25,14 +32,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Signal Shield", version="0.1.0", lifespan=lifespan)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stdout,
-)
-logger = logging.getLogger("signal_shield")
-
-app = FastAPI(title="Signal Shield", version="0.1.0")
 
 logger.info("Signal Shield starting up")
 

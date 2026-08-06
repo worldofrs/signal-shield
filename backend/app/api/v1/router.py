@@ -19,7 +19,7 @@ ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a"}
 
 
 def _run_protection(file_bytes: bytes, filename: str, encoder_list: list[str]) -> bytes:
-    """CPU-bound load → protect → export pipeline (runs in a worker thread)."""
+    """CPU-bound load -> protect -> export pipeline (runs in a worker thread)."""
     y, sr = load_audio(file_bytes, filename)
     protected = apply_phase_protection(y, sr, encoders=encoder_list)
     return export_wav(protected, sr)
@@ -64,26 +64,15 @@ async def protect_audio(
             detail=f"File exceeds {settings.max_file_size_mb}MB limit",
         )
 
+    logger.info("Processing '%s' (%.1fMB) with encoders: %s", filename, file_size_mb, encoder_list)
+
     # Offload CPU-bound work so /health and other requests stay responsive
     try:
+        start = time.time()
         wav_bytes = await asyncio.to_thread(
             _run_protection, file_bytes, filename, encoder_list
         )
-        print("yay it worked!")
-    logger.info("Processing '%s' (%.1fMB) with encoders: %s", filename, file_size_mb, encoder_list)
-
-    # Process: load -> phase protect -> export
-    try:
-        start = time.time()
-
-        y, sr = load_audio(file_bytes, filename)
-        logger.info("Audio loaded: %.1fs duration, sr=%d", len(y) / sr, sr)
-
-        protected = apply_phase_protection(y, sr, encoders=encoder_list)
         logger.info("Protection complete in %.1fs", time.time() - start)
-
-        wav_bytes = export_wav(protected, sr)
-        logger.info("WAV export complete, %d bytes", len(wav_bytes))
     except Exception as e:
         logger.exception("Processing failed for '%s'", filename)
         raise HTTPException(
