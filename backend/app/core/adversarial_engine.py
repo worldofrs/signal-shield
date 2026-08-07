@@ -252,30 +252,30 @@ def apply_adversarial_protection(
 
     logger.info("Joint PGD complete in %.1fs", time.time() - pgd_start)
 
-    # Apply the optimized perturbation
+    # Extract the learned perturbation (at 16kHz)
     with torch.no_grad():
-        protected_16k = (audio_tensor + delta).numpy()
+        delta_16k = delta.detach()
 
-    # Resample back to original sample rate if we resampled earlier
-    if sr != _RESEMBLYZER_SR:
-        protected_tensor = torch.from_numpy(protected_16k)
-        protected_tensor = torchaudio.functional.resample(
-            protected_tensor, orig_freq=_RESEMBLYZER_SR, new_freq=sr
-        )
-        protected = protected_tensor.numpy()
-    else:
-        protected = protected_16k
+        # Resample only the delta back to the original sample rate.
+        # Resampling the full audio causes phase-shift artifacts that
+        # become audible after the epsilon clamp. Resampling just the
+        # perturbation avoids corrupting the original signal.
+        if sr != _RESEMBLYZER_SR:
+            delta_orig = torchaudio.functional.resample(
+                delta_16k, orig_freq=_RESEMBLYZER_SR, new_freq=sr
+            ).numpy()
+        else:
+            delta_orig = delta_16k.numpy()
 
-    # Ensure output length matches input exactly
-    if len(protected) > len(y):
-        protected = protected[: len(y)]
-    elif len(protected) < len(y):
-        protected = np.pad(protected, (0, len(y) - len(protected)))
+        # Match length to original audio
+        if len(delta_orig) > len(y):
+            delta_orig = delta_orig[: len(y)]
+        elif len(delta_orig) < len(y):
+            delta_orig = np.pad(delta_orig, (0, len(y) - len(delta_orig)))
 
-    # Clamp the final perturbation to epsilon
-    delta_final = protected - y
-    delta_final = np.clip(delta_final, -settings.pgd_epsilon, settings.pgd_epsilon)
-    protected = y + delta_final
+        # Clamp to epsilon and apply to original (untouched) audio
+        delta_orig = np.clip(delta_orig, -settings.pgd_epsilon, settings.pgd_epsilon)
+        protected = y + delta_orig
 
     return protected.astype(np.float32)
 
