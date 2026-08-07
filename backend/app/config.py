@@ -22,13 +22,16 @@ class Settings(BaseSettings):
     sample_rate: int = 22050
 
     # Adversarial PGD parameters
-    pgd_steps: int = 50
-    pgd_epsilon: float = 0.01
-    pgd_alpha: float = 0.001
+    pgd_steps: int = 30
+    pgd_epsilon: float = 0.0005
+    pgd_alpha: float = 0.0001
 
-    # Custom-trained model paths (empty = use SpeechBrain pretrained from HuggingFace)
-    ecapa_model_path: str = ""
-    xvector_model_path: str = ""
+    # Custom-trained model paths (default to bundled checkpoints)
+    xvector_model_path: str = "models/xvector"
+    ecapa_model_path: str = "models/ecapa"
+
+    # Loudness preservation — rescale output so peak matches input
+    preserve_loudness: bool = True
 
     # PyTorch thread count (0 = auto-detect via os.cpu_count())
     torch_threads: int = 0

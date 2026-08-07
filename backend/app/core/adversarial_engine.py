@@ -9,7 +9,6 @@ speaker embedding of (audio + delta) is as far as possible from the original emb
 while keeping delta small enough to be imperceptible.
 """
 
-import gc
 import logging
 import os
 import time
@@ -48,16 +47,6 @@ _TARGET_SR = 16000
 _xvector_encoder = None
 _ecapa_encoder = None
 _hubert_model = None
-
-def _clear_model_cache(name: str):
-    """Remove a model from the singleton cache to free memory."""
-    global _xvector_encoder, _ecapa_encoder, _hubert_model
-    if name == "xvector":
-        _xvector_encoder = None
-    elif name == "ecapa":
-        _ecapa_encoder = None
-    elif name == "hubert":
-        _hubert_model = None
 
 
 def _get_xvector_encoder():
@@ -261,40 +250,45 @@ def apply_adversarial_protection(
 
     logger.info("Joint PGD complete in %.1fs", time.time() - pgd_start)
 
-    # --- Unload all models to free memory ---
-    loaded_encoder_names = [name for name, _ in loaded_encoders]
-    del loaded_encoders, original_embeddings
-    for name in loaded_encoder_names:
-        _clear_model_cache(name)
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
-
-    # Apply the optimized perturbation
+    # Extract the learned perturbation (at 16kHz)
     with torch.no_grad():
-        protected_16k = (audio_tensor + delta).numpy()
+        delta_16k = delta.detach()
 
-    # Resample back to original sample rate if we resampled earlier
-    if sr != _TARGET_SR:
-        protected_tensor = torch.from_numpy(protected_16k)
-        protected_tensor = torchaudio.functional.resample(
-            protected_tensor, orig_freq=_TARGET_SR, new_freq=sr
-        )
-        protected = protected_tensor.numpy()
-    else:
-        protected = protected_16k
+        # Resample only the delta back to the original sample rate
+        if sr != _TARGET_SR:
+            delta_orig = torchaudio.functional.resample(
+                delta_16k, orig_freq=_TARGET_SR, new_freq=sr
+            ).numpy()
+        else:
+            delta_orig = delta_16k.numpy()
 
-    # Ensure output length matches input exactly
-    if len(protected) > len(y):
-        protected = protected[: len(y)]
-    elif len(protected) < len(y):
-        protected = np.pad(protected, (0, len(y) - len(protected)))
+        # Match length to original audio
+        if len(delta_orig) > len(y):
+            delta_orig = delta_orig[: len(y)]
+        elif len(delta_orig) < len(y):
+            delta_orig = np.pad(delta_orig, (0, len(y) - len(delta_orig)))
 
-    # Clamp the final perturbation to epsilon. The resample round-trip
-    # can amplify delta beyond epsilon, so we enforce the bound in output space.
-    delta_final = protected - y
-    delta_final = np.clip(delta_final, -settings.pgd_epsilon, settings.pgd_epsilon)
-    protected = y + delta_final
+        # Clamp to epsilon
+        delta_orig = np.clip(delta_orig, -settings.pgd_epsilon, settings.pgd_epsilon)
+
+        # Perceptual masking: scale perturbation by local audio amplitude
+        # so quiet/silent regions get near-zero perturbation while loud
+        # regions get full strength (where the audio masks it).
+        window = int(0.03 * sr)  # 30ms smoothing window
+        if window % 2 == 0:
+            window += 1
+        envelope = np.convolve(np.abs(y), np.ones(window) / window, mode="same")
+        envelope_max = envelope.max() or 1.0
+        mask = envelope / envelope_max  # 0..1: silent→loud
+        delta_orig = delta_orig * mask
+
+        original_peak = np.abs(y).max() or 1.0
+        protected = y + delta_orig
+
+        # Preserve original loudness — rescale so peak matches input
+        if settings.preserve_loudness:
+            protected_peak = np.abs(protected).max() or 1.0
+            protected = protected * (original_peak / protected_peak)
 
     return protected.astype(np.float32)
 

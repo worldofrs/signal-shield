@@ -12,41 +12,52 @@ Signal Shield processes audio files to make them unusable for voice cloning whil
 
 ### Adversarial Optimization (Current Approach)
 
-Signal Shield uses **adversarial optimization** powered by PGD (Projected Gradient Descent) and a real speaker encoder model (Resemblyzer). Instead of a fixed transformation, the system finds the smallest possible perturbation for each audio file that maximally disrupts speaker recognition.
+Signal Shield uses **adversarial optimization** powered by PGD (Projected Gradient Descent) and multiple speaker encoder models. Instead of a fixed transformation, the system finds the smallest possible perturbation for each audio file that maximally disrupts speaker recognition.
 
 ```
-  Audio ──┬──► Speaker Encoder ──► Loss (cosine similarity)
-          │         ▲                    │
-          │         │        gradient    │
-          │    perturbation ◄────────────┘
-          │         │
+                    ┌──► X-Vector Encoder ──────┐
+  Audio ──┬─────────┤                           ├──► Loss (sum of cosine similarities)
+          │         └──► ECAPA-TDNN Encoder ────┘              │
+          │                    ▲                    gradient    │
+          │                    │                               │
+          │               perturbation ◄───────────────────────┘
+          │                    │
           └──► Add Perturbation ──► Protected Audio
 
   Custom perturbation per file.
-  Targeted, validated against a real model.
-  Perturbation clamped to ±0.01 amplitude (inaudible).
+  Joint optimization across multiple encoder architectures.
+  Perturbation clamped to ±0.0005 amplitude (inaudible).
+  Perceptual masking shapes perturbation to follow audio envelope.
 ```
 
 ### How PGD Works
 
-1. **Get original embedding** — run the audio through Resemblyzer's speaker encoder to get a 256-dim vector representing "who this sounds like"
+1. **Get original embeddings** — run the audio through all selected encoders to get speaker embedding vectors
 2. **Create perturbation** — start with a zero-valued delta tensor (same length as audio)
-3. **Optimize** — for 50 iterations:
-   - Compute the embedding of (audio + delta)
-   - Measure cosine similarity to the original embedding
+3. **Optimize** — for 30 iterations:
+   - Compute embeddings of (audio + delta) across all encoders
+   - Sum cosine similarities to original embeddings
    - Backpropagate to find which direction to push each sample
    - Update delta by a small step in that direction
    - Clamp delta to [-epsilon, epsilon] so it stays inaudible
-4. **Output** — return audio + optimized delta
+4. **Perceptual masking** — scale the perturbation by the audio's local amplitude envelope so quiet/silent regions get near-zero perturbation while loud regions retain full adversarial strength
+5. **Output** — return audio + masked perturbation at the original sample rate
+
+### Custom-Trained Models
+
+The bundled x-vector and ECAPA-TDNN models were trained from scratch on **LibriSpeech train-clean-360** (~921 speakers, 10 epochs each) using the [SpeechBrain](https://github.com/speechbrain/speechbrain) speaker verification recipes. Training was performed on Vast.ai GPU instances.
+
+Using custom-trained models instead of the default VoxCeleb-pretrained weights ensures the model weights are trained exclusively on permissively licensed data (see [Licensing](#licensing) below).
 
 ### Making It Differentiable
 
-Resemblyzer's `embed_utterance()` uses `torch.no_grad()`, which blocks gradient flow. To make PGD work, the engine reimplements the embedding pipeline using differentiable PyTorch ops:
+SpeechBrain's `encode_batch()` uses `torch.no_grad()`, which blocks gradient flow. To make PGD work, the engine calls the encoder's internal modules directly:
 
-- Mel spectrogram via `torchaudio.transforms.MelSpectrogram` (matching Resemblyzer's exact params: 16kHz, n_fft=400, hop=160, 40 mels)
-- Splits audio into 160-frame partial utterance windows
-- Calls the encoder's `forward()` directly (LSTM → Linear → ReLU → L2 normalize)
-- Averages partial embeddings
+- `compute_features` — Fbank feature extraction
+- `mean_var_norm` — input normalization
+- `embedding_model` — the TDNN/ECAPA-TDNN encoder
+
+This bypasses the no-grad wrapper so gradients propagate back to the audio tensor.
 
 ## Architecture
 
@@ -61,9 +72,13 @@ signal-shield/
 │   │   ├── api/v1/
 │   │   │   └── router.py   ← POST /api/v1/protect endpoint
 │   │   └── core/
-│   │       ├── adversarial_engine.py  ← PGD optimization loop (the core product)
+│   │       ├── adversarial_engine.py  ← PGD optimization loop (the core engine)
 │   │       ├── dsp_engine.py          ← Public interface, delegates to adversarial engine
-│   │       └── audio_io.py            ← Audio format conversion
+│   │       └── audio_io.py            ← Audio loading and WAV export
+│   ├── models/
+│   │   ├── xvector/        ← Custom-trained x-vector checkpoint (~19MB)
+│   │   └── ecapa/          ← Custom-trained ECAPA-TDNN checkpoint (~80MB)
+│   ├── training/           ← Scripts to reproduce model training (see training/README.md)
 │   ├── tests/              ← Adversarial + API tests
 │   ├── Dockerfile          ← Production container
 │   └── requirements.txt
@@ -99,7 +114,7 @@ signal-shield/
 | Layer | Technology | Why |
 |-------|-----------|-----|
 | Adversarial ML | PyTorch + torchaudio | Differentiable computation graph for gradient-based optimization |
-| Speaker Encoder | Resemblyzer | Pretrained 3-layer LSTM, lightweight (~17MB), produces 256-dim embeddings |
+| Speaker Encoders | SpeechBrain (x-vector + ECAPA-TDNN) | Custom-trained on LibriSpeech, joint optimization across architectures |
 | API | FastAPI | Async Python web framework with built-in validation and docs |
 | Audio I/O | librosa + soundfile | Industry-standard audio loading and WAV export |
 | Frontend | Next.js + Tailwind | React framework with standalone build for Docker |
@@ -111,13 +126,12 @@ All configurable via `SS_`-prefixed environment variables.
 
 | Parameter | Default | What it controls |
 |-----------|---------|-----------------|
-| `sample_rate` | 22050 Hz | Audio resampling rate |
-| `n_fft` | 4096 | STFT window size |
-| `hop_length` | 1024 | STFT step size |
-| `freq_threshold_hz` | 10000 | Legacy parameter (kept for compatibility) |
-| `pgd_steps` | 50 | Number of PGD optimization iterations |
-| `pgd_epsilon` | 0.01 | Max perturbation amplitude (imperceptibility bound) |
-| `pgd_alpha` | 0.001 | Step size per PGD iteration |
+| `pgd_steps` | 30 | Number of PGD optimization iterations |
+| `pgd_epsilon` | 0.0005 | Max perturbation amplitude (imperceptibility bound) |
+| `pgd_alpha` | 0.0001 | Step size per PGD iteration |
+| `xvector_model_path` | `models/xvector` | Path to x-vector checkpoint directory |
+| `ecapa_model_path` | `models/ecapa` | Path to ECAPA-TDNN checkpoint directory |
+| `preserve_loudness` | true | Rescale output to match input peak amplitude |
 
 ## Running Locally
 
@@ -135,7 +149,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`, upload a `.wav` or `.mp3` file, and download the protected result. The first request is slower (~30s) because the Resemblyzer model loads on first use.
+Open `http://localhost:3000`, upload a `.wav` or `.mp3` file, and download the protected result. The first request is slower because the encoder models load on first use; subsequent requests reuse the warm models.
 
 ## Tests
 
@@ -168,17 +182,30 @@ The backend uses CPU-only PyTorch builds to keep the Docker image small (~500MB 
 
 ## Limitations
 
-- **Single surrogate model.** Protection is optimized against Resemblyzer's encoder. Cloning tools using different architectures may not be fully disrupted, though the perturbation generalizes somewhat across models.
-- **Processing time.** 50 PGD iterations on a 2-second clip takes ~20-30 seconds on CPU. Longer audio takes proportionally more.
+- **Surrogate-based protection.** Protection is optimized against x-vector and ECAPA-TDNN encoders. Cloning tools using different architectures may not be fully disrupted, though joint optimization across multiple architectures improves transferability.
+- **Mono output.** Stereo audio is mixed to mono during processing.
 - **50MB file size limit.** Processing a 50MB WAV uses ~40-60MB of peak memory.
-- **Mono output.** Audio is converted to mono at 22050 Hz during processing.
+
+## Licensing
+
+Signal Shield uses only permissively licensed components:
+
+| Component | License | Notes |
+|-----------|---------|-------|
+| [SpeechBrain](https://github.com/speechbrain/speechbrain) | Apache 2.0 | Training framework and model architectures |
+| [LibriSpeech](https://www.openslr.org/12) | CC BY 4.0 | Training data (derived from LibriVox public domain audiobooks) |
+| Model weights (bundled) | Trained from scratch | No VoxCeleb data or pretrained weights used; all weights derived from LibriSpeech training |
+
+The bundled x-vector and ECAPA-TDNN checkpoints in `backend/models/` were trained from scratch on LibriSpeech train-clean-360. They do **not** use or derive from VoxCeleb-pretrained weights, avoiding the licensing ambiguity of VoxCeleb's research-only dataset.
 
 ## Roadmap
 
 - [x] PyTorch adversarial optimization (replace static DSP)
 - [x] Dockerized deployment (Railway-ready)
+- [x] Custom-trained models on permissively licensed data
+- [x] Joint multi-encoder optimization
+- [x] Perceptual masking for audio quality
 - [ ] Validate protection against real cloning tools (RVC, XTTS)
-- [ ] Add more surrogate models for better transferability
 - [ ] Audio preview/playback in browser
 - [ ] Rate limiting
 - [ ] Batch file processing

@@ -11,10 +11,10 @@ logger = logging.getLogger("signal_shield.audio_io")
 
 
 def load_audio(file_bytes: bytes, filename: str) -> tuple[np.ndarray, int]:
-    """Load audio bytes into a numpy array, resampled to mono at the configured sample rate."""
+    """Load audio bytes into a mono numpy array at the file's native sample rate."""
     logger.info("Loading audio '%s' (%d bytes)", filename, len(file_bytes))
     buf = BytesIO(file_bytes)
-    y, sr = librosa.load(buf, sr=settings.sample_rate, mono=True)
+    y, sr = librosa.load(buf, sr=None, mono=True)
     logger.info("Audio loaded: %d samples, sr=%d, duration=%.1fs", len(y), sr, len(y) / sr)
     return y, sr # type: ignore
 
