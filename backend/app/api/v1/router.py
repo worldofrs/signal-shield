@@ -74,10 +74,12 @@ async def protect_audio(
         )
         logger.info("Protection complete in %.1fs", time.time() - start)
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         logger.exception("Processing failed for '%s'", filename)
         raise HTTPException(
             status_code=422,
-            detail=f"Processing failed: {e}",
+            detail=f"Processing failed: {type(e).__name__}: {e}\n{tb}",
         )
 
     # Return protected WAV as a download
