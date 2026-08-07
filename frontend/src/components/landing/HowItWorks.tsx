@@ -1,23 +1,23 @@
 const STEPS = [
   {
     number: "01",
-    title: "Input your audio",
-    description: "Put in the audio you want protected.",
+    title: "Upload your audio",
+    description: "Drag and drop any WAV or MP3 file. Podcasts, voiceovers, music \u2014 anything with your voice.",
   },
   {
     number: "02",
-    title: "Enable protection",
-    description: "Processes audio files to make them unusable for voice cloning while keeping them sounding identical to human ears.",
+    title: "Choose your shields",
+    description: "Pick which AI models to defend against. More models means broader protection. We recommend using all three.",
   },
   {
     number: "03",
-    title: "Share freely",
-    description: "Post and use your audio freely. Protection is invisible and automatic.",
+    title: "Download protected file",
+    description: "Get back your audio with invisible protection baked in. It sounds identical \u2014 but AI cloning tools can\u2019t use it.",
   },
   {
     number: "04",
-    title: "Enjoy",
-    description: "You voice is now protected.",
+    title: "Publish with confidence",
+    description: "Share your content anywhere. Your voice is protected before it ever reaches the internet.",
   },
 ];
 

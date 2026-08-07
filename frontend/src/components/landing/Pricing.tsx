@@ -2,46 +2,45 @@ import Link from "next/link";
 
 const TIERS = [
   {
-    name: "Personal",
-    price: "$9",
-    period: "/mo",
-    description: "For individuals who share content online.",
+    name: "Free",
+    price: "$0",
+    period: "",
+    description: "Try it out. No credit card required.",
     features: [
-      "Voice protection",
-      "Voice noise-injection (60 min/mo)",
-      "1 connected platform",
-      "Email alerts",
+      "5 minutes of audio per month",
+      "All 3 protection models included",
+      "Full audio quality preservation",
+      "No overage charges",
     ],
-    cta: "Start Free Trial",
+    cta: "Get Started",
     highlighted: false,
   },
   {
     name: "Creator",
-    price: "$15",
+    price: "$0",
     period: "/mo",
-    description: "For content creators and public figures.",
+    description: "For podcasters, streamers, and voice actors.",
     features: [
-      "Editing-tool plugin integration",
-      "5 connected platforms",
-      "Dashboard & analytics",
-      "Priority support",
+      "Pay as you go \u2014 no monthly fee",
+      "$0.30 per minute of audio",
+      "All 3 protection models included",
+      "Full audio quality preservation",
     ],
-    cta: "Start Free Trial",
+    cta: "Get Started",
     highlighted: true,
   },
   {
-    name: "Enterprise",
-    price: "Custom",
-    period: "",
-    description: "For teams, studios, and media companies.",
+    name: "Pro",
+    price: "$9.99",
+    period: "/mo",
+    description: "For professionals with regular uploads.",
     features: [
-      "Everything in Creator",
-      "Unlimited platforms",
-      "API access (all SDKs)",
-      "Custom SLAs",
-      "Voice noise-injection",
+      "120 minutes of audio per month",
+      "$0.10 per minute overage",
+      "All 3 protection models included",
+      "Priority processing",
     ],
-    cta: "Contact Sales",
+    cta: "Get Started",
     highlighted: false,
   },
 ];
@@ -120,8 +119,8 @@ export default function Pricing() {
                   ))}
                 </ul>
                 <Link
-                  href={cta === "Contact Sales" ? "#learn-more" : "/app"}
-                  target={cta === "Contact Sales" ? undefined : "_blank"}
+                  href="/app"
+                  target="_blank"
                   className={`inline-flex items-center justify-center rounded-full px-4 py-3.5 text-[15px] font-medium transition-colors ${
                     highlighted
                       ? "bg-accent text-white hover:bg-accent-hover"

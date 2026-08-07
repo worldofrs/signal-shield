@@ -4,7 +4,7 @@ const ENCODERS = [
   {
     id: "xvector",
     label: "X-Vector",
-    description: "TDNN-based encoder with statistics pooling. Fast and lightweight.",
+    description: "Defends against fast, lightweight voice cloning tools.",
     color: "text-[#0047ab]",
     checkBg: "bg-[#0047ab]",
     borderColor: "border-[#0047ab]/30",
@@ -12,7 +12,7 @@ const ENCODERS = [
   {
     id: "ecapa",
     label: "ECAPA-TDNN",
-    description: "CNN-based encoder with channel attention. Strong on short utterances.",
+    description: "Defends against advanced cloning that works with short clips.",
     color: "text-[#16a34a]",
     checkBg: "bg-[#16a34a]",
     borderColor: "border-[#16a34a]/30",
@@ -20,7 +20,7 @@ const ENCODERS = [
   {
     id: "hubert",
     label: "HuBERT",
-    description: "Transformer-based self-supervised model. Captures deep speech features.",
+    description: "Defends against deep learning models used by RVC and similar tools.",
     color: "text-[#0891b2]",
     checkBg: "bg-[#0891b2]",
     borderColor: "border-[#0891b2]/30",
@@ -47,7 +47,7 @@ export default function EncoderSelector({ selected, onChange, disabled }: Encode
   return (
     <fieldset className="mt-8 mb-2" disabled={disabled}>
       <legend className="text-[13px] font-medium text-[#52575c] uppercase tracking-[0.65px] mb-3">
-        Target encoders to defend against
+        AI models to defend against
       </legend>
       <div className="flex flex-col gap-3">
         {ENCODERS.map(({ id, label, description, color, checkBg, borderColor }) => {

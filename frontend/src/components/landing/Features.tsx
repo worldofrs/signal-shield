@@ -1,13 +1,18 @@
 const FEATURES = [
   {
-    title: "Frame-by-Frame Audio Disturbance",
+    title: "Invisible Voice Protection",
     description:
-      "A drag and drop interface that alters the inaudible frequencies of your audio so that your audio sounds the same, but a malicious bot is unable to misconstrue your words.",
+      "Upload your audio and get back a version that sounds exactly the same to your listeners, but is completely unusable by AI cloning tools. The protection is baked into the audio itself \u2014 no watermarks, no quality loss, no extra steps.",
   },
   {
-    title: "Platform-Level Audio Noise Injection API",
+    title: "Multi-Model Defense",
     description:
-      "A drag and drop interface that alters the inaudible frequencies of your audio so that your audio sounds the same, but a malicious bot is unable to misconstrue your words.",
+      "Your audio is protected against multiple types of AI voice models simultaneously. Instead of guarding against just one cloning tool, SignalShield confuses the three most common approaches cloners use \u2014 so your voice stays safe no matter which tool they try.",
+  },
+  {
+    title: "Original Quality Preserved",
+    description:
+      "Your audience hears exactly what you recorded. The protection is shaped to hide inside the loud parts of your audio and disappear in silent moments, so there\u2019s no added hiss, no static, and no change in volume.",
   },
 ];
 

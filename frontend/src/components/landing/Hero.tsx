@@ -58,9 +58,9 @@ export default function Hero() {
               {[
                 "Deepfake Prevention",
                 "Voice Cloning Protection",
-                "Invisible Watermarking",
-                "AI Scrambling Tech",
-                "API Access",
+                "Multi-Model Defense",
+                "Zero Quality Loss",
+                "Free to Start",
               ].map((label) => (
                 <span key={`${rep}-${label}`} className="flex items-center gap-2 text-sm text-white/80 px-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-accent" />

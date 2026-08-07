@@ -1,19 +1,19 @@
 const ENCODERS = [
   {
     name: "X-Vector",
-    description: "TDNN-based encoder with statistics pooling. Fast and lightweight.",
+    description: "Defends against fast, lightweight voice cloning tools.",
     color: "text-accent",
     checkBg: "bg-accent",
   },
   {
     name: "ECAPA-TDNN",
-    description: "CNN-based encoder with channel attention. Strong on short utterances.",
+    description: "Defends against advanced cloning that works with short clips.",
     color: "text-green",
     checkBg: "bg-green",
   },
   {
     name: "HuBERT",
-    description: "Transformer-based self-supervised model. Captures deep speech features.",
+    description: "Defends against deep learning models used by RVC and similar tools.",
     color: "text-[#0891b2]",
     checkBg: "bg-[#0891b2]",
   },
@@ -58,7 +58,7 @@ export default function TryItFree() {
             {/* Encoder selector */}
             <div className="mt-8">
               <p className="text-[13px] font-medium text-text-body uppercase tracking-[0.65px] mb-3">
-                Target encoders to defend against
+                AI models to defend against
               </p>
               <div className="space-y-3">
                 {ENCODERS.map(({ name, description, color, checkBg }) => (

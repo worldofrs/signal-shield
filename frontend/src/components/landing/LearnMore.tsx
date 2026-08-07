@@ -5,23 +5,24 @@ export default function LearnMore() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <div>
             <span className="inline-block rounded-full bg-green/30 px-4 py-1.5 text-[13px] font-medium text-green mb-4">
-              API
+              Under the Hood
             </span>
             <h2 className="text-[clamp(2rem,4vw,2.9rem)] font-bold text-text-heading tracking-[-1.16px] mb-4">
-              Learn more
+              How the protection works
             </h2>
 
             <div className="text-[17px] text-text-body leading-[1.625] space-y-4">
               <p>
-                Sound has two properties at every frequency: loudness (how
-                loud that frequency is) and phase (the timing offset of the
-                sound wave). Human ears are sensitive to loudness but mostly
-                deaf to phase, especially at high frequencies.
+                AI cloning tools work by analyzing your voice to create a
+                digital fingerprint. SignalShield adds a tiny, inaudible
+                signal to your audio that corrupts this fingerprint without
+                changing how your recording sounds.
               </p>
               <p>
-                Cloning models, however, use both. Signal Shield scrambles
-                the phase above 10,000 Hz. Humans can&apos;t hear the difference,
-                but cloning models get corrupted input.
+                Think of it like an invisible ink that only AI can see. The
+                protection is custom-generated for each file and tested
+                against three different types of voice AI models to make sure
+                it works no matter which cloning tool someone tries to use.
               </p>
             </div>
           </div>

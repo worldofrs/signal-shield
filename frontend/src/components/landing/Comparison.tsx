@@ -1,13 +1,13 @@
 type CellContent = string | "check" | "cross";
 
 const ROWS: { capability: string; reactive: CellContent; shield: CellContent }[] = [
-  { capability: "Approach", reactive: "Reactive detection & takedowns", shield: "Proactive prevention" },
-  { capability: "Voice cloning defense", reactive: "cross", shield: "check" },
-  { capability: "Workflow integrated", reactive: "cross", shield: "check" },
-  { capability: "Pricing model", reactive: "Pay-per-usage + base fee", shield: "Simple subscription" },
-  { capability: "External dependencies", reactive: "Cloud AI calls", shield: "None \u2014 local math" },
-  { capability: "Survives compression", reactive: "cross", shield: "check" },
-  { capability: "Data privacy", reactive: "Uploads to 3rd-party", shield: "Stays on your servers" },
+  { capability: "Approach", reactive: "Detect deepfakes after they spread", shield: "Prevent cloning before it happens" },
+  { capability: "Stops voice cloning", reactive: "cross", shield: "check" },
+  { capability: "Audio sounds the same", reactive: "cross", shield: "check" },
+  { capability: "Works against multiple AI models", reactive: "cross", shield: "check" },
+  { capability: "Pricing", reactive: "Enterprise contracts", shield: "Free tier + pay as you go" },
+  { capability: "No quality loss", reactive: "cross", shield: "check" },
+  { capability: "Simple upload workflow", reactive: "cross", shield: "check" },
 ];
 
 const CheckIcon = () => (

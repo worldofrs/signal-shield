@@ -3,8 +3,7 @@ import Link from "next/link";
 const PRODUCT_LINKS = [
   { label: "Features", href: "#features" },
   { label: "Pricing", href: "#pricing" },
-  { label: "API Docs", href: "#learn-more" },
-  { label: "Changelog", href: "#" },
+  { label: "How It Works", href: "#learn-more" },
 ];
 
 export default function Footer() {
