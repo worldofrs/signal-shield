@@ -272,7 +272,11 @@ def apply_adversarial_protection(
 
         # Clamp to epsilon and apply to original (untouched) audio
         delta_orig = np.clip(delta_orig, -settings.pgd_epsilon, settings.pgd_epsilon)
+        original_peak = np.abs(y).max() or 1.0
         protected = y + delta_orig
+        # Preserve original loudness — rescale so peak matches input
+        protected_peak = np.abs(protected).max() or 1.0
+        protected = protected * (original_peak / protected_peak)
 
     return protected.astype(np.float32)
 
