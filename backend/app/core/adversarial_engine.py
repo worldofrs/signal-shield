@@ -244,11 +244,7 @@ def apply_adversarial_protection(
         total_loss.backward()
 
         with torch.no_grad():
-            grad = delta.grad  # type: ignore
-            grad_norm = torch.norm(grad)
-            if grad_norm > 0:
-                grad = grad / grad_norm
-            delta_update = delta - settings.pgd_alpha * grad
+            delta_update = delta - settings.pgd_alpha * delta.grad.sign()  # type: ignore
             delta_update = torch.clamp(delta_update, -settings.pgd_epsilon, settings.pgd_epsilon)
             delta.data = delta_update
 
@@ -259,20 +255,6 @@ def apply_adversarial_protection(
     # Extract the learned perturbation (at 16kHz)
     with torch.no_grad():
         delta_16k = delta.detach()
-
-        # Low-pass filter the perturbation to remove high-frequency hiss.
-        # Two-pass biquad at 4kHz keeps adversarial energy in the speech
-        # band where natural masking makes it imperceptible.
-        delta_16k = torchaudio.functional.lowpass_biquad(
-            delta_16k.unsqueeze(0), _RESEMBLYZER_SR, cutoff_freq=4000.0
-        ).squeeze(0)
-        delta_16k = torchaudio.functional.lowpass_biquad(
-            delta_16k.unsqueeze(0), _RESEMBLYZER_SR, cutoff_freq=4000.0
-        ).squeeze(0)
-        # Re-normalize so peak stays within epsilon
-        peak = delta_16k.abs().max()
-        if peak > 0:
-            delta_16k = delta_16k * (settings.pgd_epsilon / peak)
 
         # Resample only the delta back to the original sample rate.
         if sr != _RESEMBLYZER_SR:

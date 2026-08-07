@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     sample_rate: int = 22050
 
     # Adversarial PGD parameters
-    pgd_steps: int = 50
-    pgd_epsilon: float = 0.002
-    pgd_alpha: float = 0.5
+    pgd_steps: int = 30
+    pgd_epsilon: float = 0.0005
+    pgd_alpha: float = 0.0001
 
     # Startup warmup — SS_WARMUP=true|false toggles loading models into RAM at boot.
     # SS_WARMUP_ENCODERS picks which models (comma-separated) when warmup is on.
