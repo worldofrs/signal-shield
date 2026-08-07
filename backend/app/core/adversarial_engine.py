@@ -261,33 +261,14 @@ def apply_adversarial_protection(
         delta_16k = delta.detach()
 
         # Low-pass filter the perturbation to remove high-frequency hiss.
-        # Keeps adversarial energy below 4kHz where speech has natural
-        # masking, making the perturbation imperceptible.
-        cutoff_hz = 4000
-        nyquist = _RESEMBLYZER_SR / 2
-        n_fft_lp = 1024
-        freqs = torch.fft.rfftfreq(n_fft_lp, d=1.0 / _RESEMBLYZER_SR)
-        lp_mask = (freqs <= cutoff_hz).float()
-        # Smooth rolloff to avoid ringing
-        transition = 500  # Hz
-        transition_band = (freqs > cutoff_hz) & (freqs <= cutoff_hz + transition)
-        lp_mask[transition_band] = 0.5 * (1 + torch.cos(
-            torch.pi * (freqs[transition_band] - cutoff_hz) / transition
-        ))
-        # Apply filter in overlapping chunks
-        hop_lp = n_fft_lp // 2
-        window = torch.hann_window(n_fft_lp)
-        padded = F.pad(delta_16k, (0, n_fft_lp))
-        filtered = torch.zeros_like(padded)
-        for start in range(0, len(delta_16k), hop_lp):
-            chunk = padded[start:start + n_fft_lp]
-            if len(chunk) < n_fft_lp:
-                break
-            windowed = chunk * window
-            spectrum = torch.fft.rfft(windowed)
-            spectrum = spectrum * lp_mask
-            filtered[start:start + n_fft_lp] += torch.fft.irfft(spectrum, n=n_fft_lp) * window
-        delta_16k = filtered[:len(delta_16k)]
+        # Two-pass biquad at 4kHz keeps adversarial energy in the speech
+        # band where natural masking makes it imperceptible.
+        delta_16k = torchaudio.functional.lowpass_biquad(
+            delta_16k.unsqueeze(0), _RESEMBLYZER_SR, cutoff_freq=4000.0
+        ).squeeze(0)
+        delta_16k = torchaudio.functional.lowpass_biquad(
+            delta_16k.unsqueeze(0), _RESEMBLYZER_SR, cutoff_freq=4000.0
+        ).squeeze(0)
         # Re-normalize so peak stays within epsilon
         peak = delta_16k.abs().max()
         if peak > 0:
