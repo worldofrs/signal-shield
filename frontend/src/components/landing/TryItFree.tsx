@@ -1,19 +1,19 @@
 const ENCODERS = [
   {
-    name: "Resemblyzer",
-    description: "GE2E-based model trained on VoxCeleb. Commonly used for speaker similarity and voice cloning pipelines.",
+    name: "X-Vector",
+    description: "TDNN-based encoder with statistics pooling. Fast and lightweight.",
     color: "text-accent",
     checkBg: "bg-accent",
   },
   {
     name: "ECAPA-TDNN",
-    description: "SpeechBrain\u2019s strong speaker embedding model. Strong on short utterances; top accuracy in voice auth tasks.",
+    description: "CNN-based encoder with channel attention. Strong on short utterances.",
     color: "text-green",
     checkBg: "bg-green",
   },
   {
     name: "HuBERT",
-    description: "Self-supervised transformer from Meta AI. Powers RVC and many open-source voice cloning models.",
+    description: "Transformer-based self-supervised model. Captures deep speech features.",
     color: "text-[#0891b2]",
     checkBg: "bg-[#0891b2]",
   },
