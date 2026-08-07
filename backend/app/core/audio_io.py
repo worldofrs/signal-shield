@@ -34,7 +34,7 @@ def load_audio(file_bytes: bytes, filename: str) -> tuple[np.ndarray, int]:
 def export_wav(y: np.ndarray, sr: int) -> bytes:
     """Write a numpy audio array to WAV bytes."""
     buf = BytesIO()
-    sf.write(buf, y, sr, format="WAV")
+    sf.write(buf, y, sr, format="WAV", subtype="FLOAT")
     buf.seek(0)
     wav_bytes = buf.read()
     logger.info("Exported WAV: %d bytes", len(wav_bytes))
