@@ -8,7 +8,6 @@ speaker embedding of (audio + delta) is as far as possible from the original emb
 while keeping delta small enough to be imperceptible.
 """
 
-import gc
 import logging
 import os
 import time
@@ -44,17 +43,6 @@ _PARTIALS_N_FRAMES = 160  # 1600ms per partial
 _encoder: Optional[VoiceEncoder] = None
 _ecapa_encoder = None
 _hubert_model = None
-
-
-def _clear_model_cache(name: str):
-    """Remove a model from the singleton cache to free memory."""
-    global _encoder, _ecapa_encoder, _hubert_model
-    if name == "resemblyzer":
-        _encoder = None
-    elif name == "ecapa":
-        _ecapa_encoder = None
-    elif name == "hubert":
-        _hubert_model = None
 
 
 def _get_encoder() -> VoiceEncoder:
@@ -263,15 +251,6 @@ def apply_adversarial_protection(
         delta.grad.zero_()  # type: ignore
 
     logger.info("Joint PGD complete in %.1fs", time.time() - pgd_start)
-
-    # --- Unload all models to free memory ---
-    loaded_encoder_names = [name for name, _ in loaded_encoders]
-    del loaded_encoders, original_embeddings
-    for name in loaded_encoder_names:
-        _clear_model_cache(name)
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
 
     # Apply the optimized perturbation
     with torch.no_grad():
