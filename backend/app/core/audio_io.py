@@ -24,15 +24,14 @@ def load_audio(file_bytes: bytes, filename: str) -> tuple[np.ndarray, int]:
     try:
         tmp.write(file_bytes)
         tmp.close()
-        y, sr = librosa.load(tmp.name, sr=settings.sample_rate, mono=True)
+        # Load at native sample rate (sr=None) to avoid lossy resampling.
+        # The adversarial engine handles its own internal resampling to 16kHz
+        # for the encoders and resamples back to the original rate afterward.
+        y, sr = librosa.load(tmp.name, sr=None, mono=True)
     finally:
         os.unlink(tmp.name)
-    return y, sr  # type: ignore
-    logger.info("Loading audio '%s' (%d bytes)", filename, len(file_bytes))
-    buf = BytesIO(file_bytes)
-    y, sr = librosa.load(buf, sr=settings.sample_rate, mono=True)
     logger.info("Audio loaded: %d samples, sr=%d, duration=%.1fs", len(y), sr, len(y) / sr)
-    return y, sr # type: ignore
+    return y, sr  # type: ignore
 
 
 def export_wav(y: np.ndarray, sr: int) -> bytes:
