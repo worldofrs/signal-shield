@@ -109,12 +109,6 @@ export default function AppPage() {
             </div>
           )}
 
-          <EncoderSelector
-            selected={selectedEncoders}
-            onChange={setSelectedEncoders}
-            disabled={status === "processing"}
-          />
-
           {selectedFile && (status === "ready" || status === "error") && (
             <div className="flex justify-center pt-6">
               <button
@@ -132,6 +126,12 @@ export default function AppPage() {
 
           <ProcessingStatus status={status === "ready" ? "idle" : status} error={error} />
           {result && <DownloadButton blob={result.blob} filename={result.filename} />}
+
+          <EncoderSelector
+            selected={selectedEncoders}
+            onChange={setSelectedEncoders}
+            disabled={status === "processing"}
+          />
         </div>
       </main>
     </div>
